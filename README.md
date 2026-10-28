@@ -36,7 +36,9 @@ autosubmit-wechatarticle/
 │  ├─ browser.js               浏览器启动、登录态读写、token 解析
 │  ├─ login.js                 扫码登录并保存登录态
 │  ├─ probe.js                 抓取后台真实 DOM 结构（校准选择器用）
-│  └─ publish.js               填稿、选封面、保存草稿、发表
+│  ├─ publish.js               填稿、选封面、保存草稿、发表
+│  └─ server.js                本地 Web UI 服务（无额外依赖）
+├─ public/                     Web UI（index.html / styles.css / app.js）
 ├─ auth.json                   登录态凭证（本地生成，已忽略）
 └─ build/<slug>/               渲染产物与调试截图（已忽略）
 ```
@@ -136,6 +138,24 @@ node src/cli.js publish <slug> --yes    # 真正发表
 | `--headless` | 无头模式运行（`draft` / `publish`）；首次登录或需要扫码时建议不用 |
 | `--all` | `build` 时渲染 `content/` 下全部文章 |
 | `--yes` | `publish` 时真正提交；不加只打开弹窗再取消 |
+
+## 图形界面（Web UI）
+
+不想敲命令时，用本地 Web UI 完成同样的流程：
+
+```bash
+npm run ui          # 等价于 node src/server.js
+```
+
+打开 http://127.0.0.1:4173 （端口可用 `PORT` 环境变量改）。界面分三栏：
+
+- **左：稿件列表**，点「新建」填一个 slug 即可建稿
+- **中：字段 + 正文**，标题/作者/摘要/主题直接在界面里改，正文支持 Markdown 编辑、导入 `.md`、拖拽或粘贴图片（自动存入 `assets/` 并插入引用）
+- **右：预览与终端**，构建产物直接内嵌预览，任务日志实时滚动
+
+右上角四个按钮对应：`扫码登录`、`构建预览`、`存草稿`、`发表`。首次打开若缺少依赖，会弹窗提示并一键执行 `npm install` + `npx playwright install chromium`。
+
+界面里填的字段保存在 `content/<slug>/article.json`，不需要写进 Markdown 的 front-matter；构建时以 `article.json` 为准，其次才是 front-matter。
 
 ## 隐私与安全
 

@@ -34,25 +34,45 @@ export async function listArticles() {
   return slugs.sort();
 }
 
-export async function buildArticle(slug) {
+/**
+ * 读取文章：正文来自 index.md，字段以 article.json（GUI 保存）为准，
+ * 其次才是 index.md 的 front-matter，这样 GUI 里改字段不需要回写正文。
+ */
+export async function loadArticle(slug) {
   const articleDir = path.join(dirs.content, slug);
-  const mdPath = path.join(articleDir, 'index.md');
-
   let raw;
   try {
-    raw = await fs.readFile(mdPath, 'utf8');
+    raw = await fs.readFile(path.join(articleDir, 'index.md'), 'utf8');
   } catch {
-    throw new Error(`找不到文章：${mdPath}`);
+    throw new Error(`找不到文章：${path.join(articleDir, 'index.md')}`);
   }
 
-  const { data, content } = matter(raw);
-  const title = data.title;
-  if (!title) throw new Error(`${slug}: front-matter 缺少 title`);
+  const { data: frontMatter, content } = matter(raw);
+  let sidecar = {};
+  try {
+    sidecar = JSON.parse(await fs.readFile(path.join(articleDir, 'article.json'), 'utf8'));
+  } catch {
+    // 没有 article.json 就只用 front-matter
+  }
 
-  const themeName = data.theme || DEFAULT_THEME;
+  const fields = { ...frontMatter };
+  for (const [key, value] of Object.entries(sidecar)) {
+    if (value !== '' && value !== null && value !== undefined) fields[key] = value;
+  }
+
+  return { articleDir, fields, markdown: content };
+}
+
+export async function buildArticle(slug) {
+  const { articleDir, fields, markdown } = await loadArticle(slug);
+
+  const title = fields.title;
+  if (!title) throw new Error(`${slug}: 缺少标题（front-matter 或 article.json 的 title）`);
+
+  const themeName = fields.theme || DEFAULT_THEME;
   const { css, stats } = await prepareTheme(themeName);
 
-  const rendered = md.render(content);
+  const rendered = md.render(markdown);
   // markdown-it 会给代码块加 class="language-xxx"，微信会剥离，这里直接去掉
   const cleanHtml = rendered.replace(/\sclass="[^"]*"/g, '');
   const { html: bodyHtml, warnings } = await inlineImages(cleanHtml, articleDir);
@@ -72,7 +92,7 @@ export async function buildArticle(slug) {
     throw new Error(`${slug}: 微信兼容性检查未通过\n  - ${issues.join('\n  - ')}`);
   }
 
-  const digest = data.digest || buildDigest(bodyHtml);
+  const digest = fields.digest || buildDigest(bodyHtml);
   const outDir = path.join(dirs.build, slug);
   await fs.mkdir(outDir, { recursive: true });
 
@@ -88,11 +108,11 @@ export async function buildArticle(slug) {
       {
         slug,
         title,
-        author: data.author || '',
+        author: fields.author || '',
         digest,
-        cover: data.cover || '',
+        cover: fields.cover || '',
         theme: themeName,
-        tags: data.tags || [],
+        tags: fields.tags || [],
         builtAt: new Date().toISOString(),
       },
       null,

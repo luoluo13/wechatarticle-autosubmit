@@ -7,7 +7,8 @@
   "license": "MIT",
   "scripts": {
     "build": "node src/cli.js build",
-    "theme": "node src/cli.js theme"
+    "theme": "node src/cli.js theme",
+    "ui": "node src/server.js"
   },
   "engines": {
     "node": ">=20"

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>排字间 · 公众号发布台</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="seal">排</span>
+    <div class="brand-text">
+      <strong>排字间</strong>
+      <span>TYPESETTER · 公众号发布台</span>
+    </div>
+  </div>
+
+  <div class="env" id="env" aria-live="polite"></div>
+
+  <div class="actions">
+    <button class="btn ghost" data-action="login" title="打开公众号后台扫码">扫码登录</button>
+    <button class="btn ghost" data-action="build" title="渲染并生成预览">构建预览</button>
+    <button class="btn" data-action="draft" title="填入后台并保存为草稿">存草稿</button>
+    <button class="btn danger" data-action="publish" title="走完整发表流程">发表</button>
+  </div>
+</header>
+
+<main class="desk">
+  <aside class="rail">
+    <div class="rail-head">
+      <h2>稿件</h2>
+      <button class="btn tiny" id="new-article">新建</button>
+    </div>
+    <ul class="articles" id="articles"></ul>
+    <p class="rail-foot mono" id="rail-foot">—</p>
+  </aside>
+
+  <section class="editor">
+    <div class="fields">
+      <label class="field title-field">
+        <span>标题 <em>必填</em></span>
+        <input id="f-title" placeholder="给这篇文章一个标题" autocomplete="off">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>作者</span>
+          <input id="f-author" placeholder="选填" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>主题</span>
+          <select id="f-theme"></select>
+        </label>
+      </div>
+      <label class="field">
+        <span>摘要 <i class="mono" id="digest-count">0/54</i></span>
+        <textarea id="f-digest" rows="2" placeholder="选填，不填则自动截取正文开头"></textarea>
+      </label>
+    </div>
+
+    <div class="code-pane">
+      <div class="code-head">
+        <span class="mono file-tag">content/<b id="slug-tag">—</b>/index.md</span>
+        <div class="code-tools">
+          <button class="btn tiny" id="import-md">导入 .md</button>
+          <button class="btn tiny" id="pick-image">插入图片</button>
+          <span class="save-state mono" id="save-state">未修改</span>
+        </div>
+      </div>
+      <textarea id="f-markdown" spellcheck="false" placeholder="从这里开始写正文，支持 Markdown。&#10;&#10;图片直接拖进来即可，会自动存入 assets/ 并插入引用。"></textarea>
+      <div class="assets" id="assets"></div>
+      <input type="file" id="md-input" accept=".md,.markdown,text/markdown" hidden>
+      <input type="file" id="img-input" accept="image/*" multiple hidden>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="preview" role="tab">预览</button>
+      <button class="tab" data-tab="log" role="tab">终端 <b id="log-badge"></b></button>
+    </div>
+    <div class="side-body">
+      <div class="pane active" id="pane-preview">
+        <div class="preview-shell">
+          <iframe id="preview" title="预览"></iframe>
+          <p class="preview-empty" id="preview-empty">还没有构建产物。<br>点右上角「构建预览」生成。</p>
+        </div>
+      </div>
+      <div class="pane" id="pane-log">
+        <pre id="log" class="mono"></pre>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<dialog id="setup-dialog">
+  <form method="dialog" class="dialog-body">
+    <h3>先补齐依赖</h3>
+    <p>检测到 <code>node_modules</code> 或 Playwright 浏览器还没装好。这一步会执行：</p>
+    <pre class="mono snippet">npm install
+npx playwright install chromium</pre>
+    <pre class="mono dialog-log" id="setup-log"></pre>
+    <div class="dialog-actions">
+      <button class="btn ghost" value="cancel">稍后</button>
+      <button class="btn" value="cancel" id="setup-run">开始安装</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="new-dialog">
+  <form method="dialog" class="dialog-body" id="new-form">
+    <h3>新建稿件</h3>
+    <label class="field">
+      <span>目录名（slug）</span>
+      <input id="new-slug" placeholder="例如 2026-11-my-post" autocomplete="off">
+    </label>
+    <p class="hint">只允许字母、数字、点、下划线、短横线。标题可以在右侧编辑器里填。</p>
+    <div class="dialog-actions">
+      <button class="btn ghost" value="cancel">取消</button>
+      <button class="btn" value="create" id="new-create">创建</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="publish-dialog">
+  <form method="dialog" class="dialog-body">
+    <h3>确定发表？</h3>
+    <p>脚本会自动：处理创作来源声明 → 关闭「群发通知」 → 点「继续发表」。若弹出微信验证二维码，需要你扫码。</p>
+    <p class="warn">发表不可撤销，文章会立刻出现在公众号主页。</p>
+    <div class="dialog-actions">
+      <button class="btn ghost" value="cancel">再想想</button>
+      <button class="btn danger" value="confirm" id="publish-confirm">发表</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
