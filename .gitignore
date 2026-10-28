@@ -1,0 +1,6 @@
+node_modules/
+build/
+themes/*.wechat.css
+auth.json
+*.log
+.DS_Store

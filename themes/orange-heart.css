@@ -1,0 +1,197 @@
+/* ============================================================
+ * orange-heart —— mdnice 风格暖橙主题（源文件）
+ *
+ * 说明：这份 CSS 是「网页版」写法，包含 CSS 变量、伪元素、
+ * 媒体查询等微信不支持的能力。构建时由 src/theme.js 自动
+ * 预处理成 themes/orange-heart.wechat.css，请不要直接引用
+ * 本文件做内联。
+ * ============================================================ */
+
+#nice {
+  --primary: #ff6a29;
+  --primary-soft: #fff4ee;
+  --primary-line: #f6ddcf;
+  --text: #3f3f3f;
+  --text-soft: #8a8a8a;
+  --title: #1a1a1a;
+  --border: #ececec;
+  --code-bg: #f7f7f7;
+  --code-text: #d14;
+
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text);
+  letter-spacing: 0.05em;
+  text-align: justify;
+  word-break: break-word;
+}
+
+#nice p {
+  margin: 1.2em 0;
+}
+
+/* 一级标题：用背景图做居中的短下划线，避免依赖伪元素 */
+#nice h1 {
+  margin: 2.2em 0 1.4em;
+  padding-bottom: 12px;
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--title);
+  line-height: 1.5;
+  text-align: center;
+  letter-spacing: 0.02em;
+  background-image: linear-gradient(to right, var(--primary), var(--primary));
+  background-repeat: no-repeat;
+  background-size: 32px 3px;
+  background-position: center bottom;
+}
+
+/* 二级标题：左侧主题色竖线 */
+#nice h2 {
+  margin: 2em 0 0.9em;
+  padding-left: 10px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--title);
+  line-height: 1.5;
+  border-left: 4px solid var(--primary);
+}
+
+#nice h3 {
+  margin: 1.6em 0 0.7em;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary);
+  line-height: 1.5;
+}
+
+#nice h4 {
+  margin: 1.4em 0 0.6em;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--title);
+}
+
+#nice strong {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+#nice em {
+  font-style: italic;
+  color: #6a6a6a;
+}
+
+/* 下面这条会被预处理剥离：微信不支持伪元素 */
+#nice blockquote::before {
+  content: "“";
+  display: block;
+  font-size: 28px;
+  line-height: 1;
+  color: #ff6a29;
+}
+
+#nice blockquote {
+  margin: 1.5em 0;
+  padding: 12px 16px;
+  background: var(--primary-soft);
+  border-left: 3px solid var(--primary);
+  border-radius: 4px;
+  color: #6a6a6a;
+  font-size: 14px;
+}
+
+#nice blockquote p {
+  margin: 0.4em 0;
+}
+
+#nice ul,
+#nice ol {
+  margin: 1.1em 0;
+  padding-left: 1.5em;
+}
+
+#nice li {
+  margin: 0.5em 0;
+}
+
+/* 这条也会被剥离 */
+#nice li::marker {
+  color: #ff6a29;
+}
+
+#nice a {
+  color: var(--primary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--primary-line);
+}
+
+#nice code {
+  padding: 2px 5px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  color: var(--code-text);
+  background: var(--code-bg);
+  border-radius: 3px;
+}
+
+#nice pre {
+  margin: 1.5em 0;
+  padding: 14px 16px;
+  background: #2b2b2b;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+#nice pre code {
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #f0f0f0;
+  background: none;
+}
+
+#nice table {
+  width: 100%;
+  margin: 1.5em 0;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+#nice th {
+  padding: 8px 10px;
+  font-weight: 500;
+  color: #ffffff;
+  background: var(--primary);
+  border: 1px solid var(--primary-line);
+}
+
+#nice td {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+}
+
+#nice tr:nth-child(even) td {
+  background: #fafafa;
+}
+
+#nice img {
+  display: block;
+  max-width: 100%;
+  margin: 1.5em auto;
+  border-radius: 6px;
+}
+
+#nice hr {
+  margin: 2em 0;
+  border: none;
+  border-top: 1px dashed var(--border);
+}
+
+/* 媒体查询在微信里没有意义，预处理会整块移除 */
+@media (max-width: 600px) {
+  #nice {
+    font-size: 16px;
+  }
+}
