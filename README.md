@@ -23,7 +23,7 @@
 
 ```
 autosubmit-wechatarticle/
-├─ content/<slug>/index.md     文章源文件（front-matter + 正文）
+├─ content/<slug>/index.md     文章源文件（front-matter + 正文，本地目录，不入库）
 ├─ content/<slug>/assets/      正文与封面用的本地图片
 ├─ themes/orange-heart.css     网页版主题（含 CSS 变量、伪元素等）
 ├─ themes/*.wechat.css         预处理后的微信版主题（构建时生成，已忽略）
@@ -55,6 +55,8 @@ npx playwright install chromium
 `playwright` 会优先使用本机已安装的 Chrome，没有时回退到 Chromium。
 
 ### 2. 写文章
+
+`content/` 是本地文章目录，不随仓库分发，也已在 `.gitignore` 中忽略。`npm run ui` 首次启动会自动创建这个空目录，你也可以在界面里直接「新建」一篇文章。
 
 新建 `content/<slug>/index.md`，图片放在同级 `assets/` 目录：
 
@@ -161,6 +163,7 @@ npm run ui          # 等价于 node src/server.js
 
 - `auth.json` 是完整的登录态凭证（cookie / localStorage），等价于账号密码。已在 `.gitignore` 中忽略，**不要提交、不要分享**。
 - `build/` 包含正文内容、调试截图与后台 URL（含一次性 `token`），同样已忽略。
+- `content/` 保存你的文章与配图，属于个人内容，已忽略，不会出现在仓库里。
 - 仓库不包含任何账号信息、token 或本地绝对路径；`src/` 里只有公众号域名、默认主题名等结构性常量。
 
 ## 已知限制

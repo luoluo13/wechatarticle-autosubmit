@@ -360,6 +360,9 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// content/ 不入库，首次运行时自动建一个空目录，界面里直接「新建」即可
+await fs.mkdir(dirs.content, { recursive: true });
+
 server.listen(PORT, HOST, () => {
   console.log(`排字间已启动：http://${HOST}:${PORT}`);
   console.log('按 Ctrl+C 停止。浏览器自动化任务会在终端里打印进度。');
