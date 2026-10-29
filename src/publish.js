@@ -157,15 +157,33 @@ async function setCoverFromBody(page, debugDir, slug, shots) {
 
   if (!nextDisabled) {
     await next.click({ timeout: 8000 }).catch(() => {});
-    await page.waitForTimeout(2500);
+
+    // 裁剪页是异步加载的：加载中只有一个「上一步」和转圈，必须等预览卡片出来再操作
+    const square = page.locator('.cover-preview-card').filter({ hasText: '1:1' }).first();
+    const cropReady = await square
+      .waitFor({ state: 'visible', timeout: 20000 })
+      .then(() => true)
+      .catch(() => false);
+
+    if (cropReady) {
+      // 「编辑封面」默认停在 2.35:1 面板，1:1 的裁剪框只有切到 1:1 才会生成。
+      // 不切换直接确认，微信会把 2.35:1 的结果当成 1:1 上传，
+      // 保存草稿时报「1:1 封面规格异常，请重新裁剪」，发表时又会被要求重新裁剪。
+      await square.click({ timeout: 8000 }).catch(() => {});
+      await square11Ready(page);
+    }
+
     shots.push(await shot(page, debugDir, `${slug}-7-cover-next.png`));
 
-    // 裁剪页是另一个弹窗（标题「编辑封面」），确认按钮不在 picker 里
     const done = page
       .getByRole('button', { name: /^(确认|确定|完成)$/ })
       .filter({ visible: true })
       .first();
-    if (await done.count()) {
+    const doneVisible = await done
+      .waitFor({ state: 'visible', timeout: 10000 })
+      .then(() => true)
+      .catch(() => false);
+    if (doneVisible) {
       await done.click({ timeout: 8000 }).catch(() => {});
     }
   }
@@ -191,10 +209,41 @@ async function setCoverFromBody(page, debugDir, slug, shots) {
 
   shots.push(await shot(page, debugDir, `${slug}-8-cover-done.png`));
 
+  // 微信在后台校验 1:1 封面，异常时正文区会挂一条红字，后面点「发表」只会再弹裁剪框
+  const specIssue = await page
+    .evaluate(() => {
+      const text = (document.body.innerText || '').replace(/\s+/g, ' ');
+      return (text.match(/[^。\n]{0,10}封面规格异常[^。\n]{0,10}/) || [''])[0];
+    })
+    .catch(() => '');
+
   return {
-    ok: !nextDisabled && covered,
-    reason: nextDisabled ? '缩略图点击后「下一步」仍不可用' : covered ? '' : '封面未写入',
+    ok: !nextDisabled && covered && !specIssue,
+    reason: nextDisabled
+      ? '缩略图点击后「下一步」仍不可用'
+      : specIssue
+        ? specIssue
+        : covered
+          ? ''
+          : '封面未写入',
   };
+}
+
+/** 等 1:1 裁剪框被切出来并变成正方形（切面板前是 2.35:1 的长方形） */
+async function square11Ready(page, timeout = 10000) {
+  return page
+    .waitForFunction(
+      () => {
+        const tracker = document.querySelector('.cover-crop-con .jcrop-tracker');
+        if (!tracker) return false;
+        const rect = tracker.getBoundingClientRect();
+        return rect.width > 50 && Math.abs(rect.width - rect.height) <= 2;
+      },
+      null,
+      { timeout },
+    )
+    .then(() => true)
+    .catch(() => false);
 }
 
 /** 关掉可能还开着的弹层，避免挡住底部按钮 */
@@ -261,9 +310,27 @@ async function openPublishDialog(page, debugDir, slug, shots, execute) {
     await page.waitForTimeout(2500);
   }
 
-  // 真正的「发表」弹窗：群发通知 / 分组通知 / 定时发表
-  const dialog = page.locator('.weui-desktop-dialog').filter({ visible: true }).first();
-  await dialog.waitFor({ timeout: 15000 });
+  // 真正的「发表」弹窗：群发通知 / 分组通知 / 定时发表。
+  // 必须按「里面有没有发表按钮」来认，不能取第一个 .weui-desktop-dialog：
+  // 封面 1:1 无效时，点「发表」弹出的是「编辑封面」，那里面没有发表按钮。
+  const dialog = page
+    .locator('.weui-desktop-dialog')
+    .filter({ has: page.getByRole('button', { name: '发表', exact: true }) })
+    .filter({ visible: true })
+    .first();
+
+  const dialogAppeared = await dialog
+    .waitFor({ timeout: 15000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!dialogAppeared) {
+    const cropOpen = await page.locator('.cover-edit-new').filter({ visible: true }).count();
+    throw new Error(
+      cropOpen
+        ? '点「发表」后微信弹出的是「编辑封面」：封面 1:1 裁剪无效，需要重新裁剪后再发表'
+        : '点「发表」后没有出现发表弹窗，请查看截图确认后台当前状态',
+    );
+  }
   await page.waitForTimeout(800);
   shots.push(await shot(page, debugDir, `${slug}-10-publish-dialog.png`));
 
