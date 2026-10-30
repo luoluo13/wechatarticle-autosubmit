@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>排字间 · 公众号发布台</title>
+<title>排字间 · 多平台发布台</title>
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -14,19 +14,19 @@
     <span class="seal">排</span>
     <div class="brand-text">
       <strong>排字间</strong>
-      <span>TYPESETTER · 公众号发布台</span>
+      <span>TYPESETTER · 多平台发布台</span>
     </div>
   </div>
 
   <div class="env" id="env" aria-live="polite"></div>
 
   <div class="actions">
-    <button class="btn ghost" data-action="login" title="打开公众号后台扫码">扫码登录</button>
+    <button class="btn ghost" data-action="loginAll" title="一次性打开全部平台登录页">全部登录</button>
     <button class="btn ghost" data-action="build" title="渲染并生成预览">构建预览</button>
-    <button class="btn" data-action="draft" title="填入后台并保存为草稿">存草稿</button>
-    <button class="btn danger" data-action="publish" title="走完整发表流程">发表</button>
   </div>
 </header>
+
+<nav class="platforms" id="platforms" aria-label="发布平台"></nav>
 
 <main class="desk">
   <aside class="rail">
@@ -126,12 +126,30 @@ npx playwright install chromium</pre>
 
 <dialog id="publish-dialog">
   <form method="dialog" class="dialog-body">
-    <h3>确定发表？</h3>
-    <p>脚本会自动：处理创作来源声明 → 关闭「群发通知」 → 点「继续发表」。若弹出微信验证二维码，需要你扫码。</p>
-    <p class="warn">发表不可撤销，文章会立刻出现在公众号主页。</p>
+    <h3>发布到 <span id="pd-name">平台</span></h3>
+    <div class="field" id="pd-category-field">
+      <span>分类 / 板块 <em id="pd-category-req">必选</em></span>
+      <select id="pd-category"></select>
+    </div>
+    <div class="field" id="pd-tags-field">
+      <span>标签 <i class="mono" id="pd-tags-hint"></i></span>
+      <input id="pd-tags" placeholder="用逗号分隔，例如：Linux,刷机" autocomplete="off">
+      <div class="tag-suggest" id="pd-tags-suggest" hidden></div>
+    </div>
+    <div class="field" id="pd-cover-field">
+      <span>封面 <i class="mono" id="pd-cover-hint"></i></span>
+      <div class="cover-pick" id="pd-cover-list"></div>
+      <div class="cover-actions">
+        <button type="button" class="btn tiny" id="pd-cover-import">导入图片</button>
+        <span class="hint" id="pd-cover-note">不选则用文章默认封面</span>
+      </div>
+      <input type="file" id="pd-cover-input" accept="image/*" hidden>
+    </div>
+    <p class="hint" id="pd-hint"></p>
+    <p class="warn">直接公开发布，不可撤销。</p>
     <div class="dialog-actions">
       <button class="btn ghost" value="cancel">再想想</button>
-      <button class="btn danger" value="confirm" id="publish-confirm">发表</button>
+      <button class="btn danger" value="confirm" id="publish-confirm">发布</button>
     </div>
   </form>
 </dialog>

@@ -123,6 +123,73 @@ body {
 
 .actions { display: flex; gap: 8px; }
 
+/* ---------------------------------- 平台栏 -------------------------------- */
+
+.platforms {
+  position: relative;
+  z-index: 10;
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--ink);
+  background: linear-gradient(180deg, #ece2cd, #e3d7bf);
+  overflow-x: auto;
+}
+.platforms::-webkit-scrollbar { height: 0; }
+
+.platform {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-right: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.p-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--vermilion);
+  box-shadow: 0 0 0 3px rgba(189, 58, 29, 0.12);
+}
+.platform.authed .p-dot {
+  background: var(--moss);
+  box-shadow: 0 0 0 3px rgba(39, 69, 58, 0.12);
+}
+
+.p-name {
+  font-family: var(--serif);
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+}
+
+.p-actions { display: flex; gap: 4px; margin-left: 4px; }
+
+.pbtn {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.35);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.pbtn:hover { border-color: var(--ink); color: var(--ink); }
+.pbtn.primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper-hi);
+}
+.pbtn.primary:hover { background: var(--vermilion); border-color: var(--vermilion); }
+.pbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+[hidden] { display: none !important; }
+
 /* ---------------------------------- 按钮 ---------------------------------- */
 
 .btn {
@@ -597,6 +664,60 @@ dialog::backdrop {
   gap: 10px;
   margin-top: 4px;
 }
+
+/* 发布弹窗：标签候选与封面自选 */
+.tag-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed var(--rule);
+  background: rgba(23, 20, 15, 0.04);
+}
+.tag-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 9px;
+  color: var(--ink-2);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  cursor: pointer;
+}
+.tag-chip:hover { color: var(--paper-hi); background: var(--ink); border-color: var(--ink); }
+
+.cover-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 150px;
+  overflow: auto;
+}
+.cover-item {
+  position: relative;
+  width: 74px;
+  height: 74px;
+  padding: 0;
+  border: 1px solid var(--rule);
+  background: #fff;
+  cursor: pointer;
+  overflow: hidden;
+}
+.cover-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover-item span {
+  position: absolute;
+  inset: auto 0 0 0;
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--paper-hi);
+  background: rgba(23, 20, 15, 0.7);
+  padding: 2px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cover-item.picked { border-color: var(--vermilion); box-shadow: 0 0 0 2px var(--vermilion); }
+.cover-actions { display: flex; align-items: center; gap: 10px; }
+.cover-actions .hint { font-size: 11px; color: var(--ink-3); }
 
 /* ---------------------------------- Toast ------------------------------- */
 

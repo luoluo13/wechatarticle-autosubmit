@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { EDITOR_URL, ensureDebugDir, tokenFromUrl } from './browser.js';
+import { ensureDebugDir } from '../../browser.js';
+import { EDITOR_URL, tokenFromUrl } from './session.js';
 
 /**
  * 封面探针：点开「拖拽或选择封面」，抓取封面选择对话框的结构。

@@ -1,12 +1,6 @@
 import path from 'node:path';
-import {
-  launchBrowser,
-  saveAuth,
-  MP_HOME,
-  MP_ORIGIN,
-  ensureDebugDir,
-  tokenFromUrl,
-} from './browser.js';
+import { launchBrowser, saveAuth, ensureDebugDir } from '../../browser.js';
+import { MP_HOME, MP_ORIGIN } from './session.js';
 
 const LOGIN_TIMEOUT = 5 * 60 * 1000;
 
@@ -27,7 +21,7 @@ export async function login() {
   try {
     await waitForLoggedIn(page, LOGIN_TIMEOUT);
   } catch (error) {
-    const debugDir = await ensureDebugDir();
+    const debugDir = await ensureDebugDir('wechat');
     await page.screenshot({ path: path.join(debugDir, 'login-timeout.png') }).catch(() => {});
     await browser.close();
     throw error;
@@ -36,10 +30,9 @@ export async function login() {
   await page.waitForTimeout(2500);
 
   const account = await readAccountName(page);
-  const state = await context.storageState();
-  await saveAuth(state);
+  await saveAuth('wechat', await context.storageState());
 
-  const debugDir = await ensureDebugDir();
+  const debugDir = await ensureDebugDir('wechat');
   const shot = path.join(debugDir, 'login-home.png');
   await page.screenshot({ path: shot, fullPage: false }).catch(() => {});
 

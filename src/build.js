@@ -14,6 +14,11 @@ const md = new MarkdownIt({
   breaks: true, // 中文写作习惯：单个换行即换行
 });
 
+/** 非微信平台用的通用 HTML（保留 class，不套主题） */
+export function renderBody(markdown) {
+  return md.render(markdown);
+}
+
 export async function listArticles() {
   let entries;
   try {

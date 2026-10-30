@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { dirs } from './config.js';
-import { EDITOR_URL, ensureDebugDir, openAuthedSession } from './browser.js';
+import { dirs } from '../../config.js';
+import { ensureDebugDir } from '../../browser.js';
+import { EDITOR_URL, openAuthedSession } from './session.js';
 
 const TITLE_EDITOR = '.title-editor__input .ProseMirror';
 const BODY_EDITOR = '.rich_media_content .ProseMirror';
@@ -107,56 +108,82 @@ async function waitForImages(page, expected, timeout = 90000) {
   });
 }
 
+/** 在封面弹窗里切到「上传封面」页签并选文件；弹窗没有上传入口时返回 false，退回从正文选 */
+async function uploadCover(page, file) {
+  const dialog = page.locator('.weui-desktop-dialog_img-picker').filter({ visible: true }).first();
+  if (!(await dialog.count().catch(() => 0))) return false;
+
+  const tab = dialog.getByText(/上传封面|上传图片/).filter({ visible: true }).first();
+  if (!(await tab.count().catch(() => 0))) return false;
+  await tab.click({ timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(800);
+
+  const input = dialog.locator('input[type=file]').first();
+  if (!(await input.count().catch(() => 0))) return false;
+  await input.setInputFiles(file);
+  await page.waitForTimeout(3000);
+  return true;
+}
+
 /**
- * 从正文图片里选封面。
+ * 选封面：默认取正文第 index 张图片；
+ * 传了 upload（本地图片）则走封面上传，本地图片不必出现在正文里。
  * 菜单项在浮层里且有 3 个同 class 副本，必须对「可见的那个」派发 click。
  */
-async function setCoverFromBody(page, debugDir, slug, shots) {
+async function setCoverFromBody(page, debugDir, slug, shots, { index = 0, upload = '' } = {}) {
   const placeholder = page.getByText('拖拽或选择封面', { exact: false }).filter({ visible: true }).first();
   await placeholder.click({ timeout: 15000 });
   await page.waitForTimeout(800);
 
-  await page.evaluate(() => {
-    const items = [...document.querySelectorAll('.js_selectCoverFromContent')];
-    const visible = items.find((el) => {
-      const rect = el.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
-    });
-    (visible || items[0])?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  });
-  await page.waitForTimeout(2000);
-  shots.push(await shot(page, debugDir, `${slug}-5-cover-dialog.png`));
-
   const dialog = '.weui-desktop-dialog_img-picker';
+  const uploaded = upload ? await uploadCover(page, upload) : false;
 
-  // 诊断：把选择框的 HTML 落盘，缩略图的结构不一定是我们预期的 <img>
-  const dump = await page.evaluate((sel) =>
-    [...document.querySelectorAll(sel)]
-      .filter((el) => el.getBoundingClientRect().width > 100)
-      .map((el) => ({ cls: el.className, html: el.innerHTML.slice(0, 6000) })),
-  dialog);
-  await fs.writeFile(path.join(debugDir, 'cover-picker.json'), JSON.stringify(dump, null, 2), 'utf8');
+  if (!uploaded) {
+    await page.evaluate(() => {
+      const items = [...document.querySelectorAll('.js_selectCoverFromContent')];
+      const visible = items.find((el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      (visible || items[0])?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await page.waitForTimeout(2000);
+    shots.push(await shot(page, debugDir, `${slug}-5-cover-dialog.png`));
 
-  // 缩略图是带 background-image 的 span，不是 <img>；点 li 的中心最稳
-  const itemBox = await page.evaluate((sel) => {
-    const root = [...document.querySelectorAll(sel)].find((el) =>
-      el.querySelector('li.appmsg_content_img_item'),
+    // 缩略图是带 background-image 的 span，不是 <img>；点 li 的中心最稳
+    const itemBox = await page.evaluate(
+      ({ sel, order }) => {
+        const root = [...document.querySelectorAll(sel)].find((el) =>
+          el.querySelector('li.appmsg_content_img_item'),
+        );
+        if (!root) return null;
+        const items = [...root.querySelectorAll('li.appmsg_content_img_item')];
+        const target = items[order] || items[0];
+        if (!target) return null;
+        const box = target.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      },
+      { sel: dialog, order: Math.max(0, Number(index) || 0) },
     );
-    if (!root) return null;
-    const box = root.querySelector('li.appmsg_content_img_item').getBoundingClientRect();
-    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  }, dialog);
-  if (!itemBox) return { ok: false, reason: '正文里没有可用作封面的图片' };
+    if (!itemBox) return { ok: false, reason: '正文里没有可用作封面的图片' };
 
-  await page.mouse.click(itemBox.x, itemBox.y);
-  await page.waitForTimeout(1000);
+    await page.mouse.click(itemBox.x, itemBox.y);
+    await page.waitForTimeout(1000);
+  }
   shots.push(await shot(page, debugDir, `${slug}-6-cover-selected.png`));
 
   const next = page.locator(`${dialog} button`).filter({ hasText: '下一步' }).first();
-  const nextDisabled = await next.evaluate((el) => /disabled/.test(el.className)).catch(() => true);
+  const hasNext = await next.count().catch(() => 0);
+  const nextDisabled = hasNext
+    ? await next.evaluate((el) => /disabled/.test(el.className)).catch(() => true)
+    : true;
 
-  if (!nextDisabled) {
+  // 上传封面后微信可能直接跳到裁剪页，此时「下一步」不存在，不能据此判定失败
+  if (hasNext && !nextDisabled) {
     await next.click({ timeout: 8000 }).catch(() => {});
+  }
+
+  if (!nextDisabled || uploaded) {
 
     // 裁剪页是异步加载的：加载中只有一个「上一步」和转圈，必须等预览卡片出来再操作
     const square = page.locator('.cover-preview-card').filter({ hasText: '1:1' }).first();
@@ -217,15 +244,14 @@ async function setCoverFromBody(page, debugDir, slug, shots) {
     })
     .catch(() => '');
 
+  const ok = (uploaded || !nextDisabled) && covered && !specIssue;
   return {
-    ok: !nextDisabled && covered && !specIssue,
-    reason: nextDisabled
-      ? '缩略图点击后「下一步」仍不可用'
-      : specIssue
-        ? specIssue
-        : covered
-          ? ''
-          : '封面未写入',
+    ok,
+    reason: ok
+      ? ''
+      : !uploaded && nextDisabled
+        ? '缩略图点击后「下一步」仍不可用'
+        : specIssue || (covered ? '' : '封面未写入'),
   };
 }
 
@@ -418,7 +444,10 @@ export async function publishArticle(slug, options = {}) {
   return runArticle(slug, { ...options, publish: true });
 }
 
-async function runArticle(slug, { headless = false, publish = false, execute = false } = {}) {
+async function runArticle(
+  slug,
+  { headless = false, publish = false, execute = false, coverIndex = 0, coverFile = '' } = {},
+) {
   const outDir = path.join(dirs.build, slug);
   let html;
   let metaRaw;
@@ -455,7 +484,10 @@ async function runArticle(slug, { headless = false, publish = false, execute = f
 
     let cover;
     try {
-      cover = await setCoverFromBody(page, debugDir, slug, shots);
+      cover = await setCoverFromBody(page, debugDir, slug, shots, {
+        index: coverIndex,
+        upload: coverFile,
+      });
     } catch (error) {
       cover = { ok: false, reason: error.message };
       await closeDialogs(page);

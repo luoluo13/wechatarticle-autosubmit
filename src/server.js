@@ -7,9 +7,10 @@ import { spawn } from 'node:child_process';
 import matter from 'gray-matter';
 import { root, dirs, DEFAULT_THEME } from './config.js';
 import { buildArticle, listArticles, loadArticle } from './build.js';
-import { AUTH_FILE } from './browser.js';
-import { draftArticle, publishArticle } from './publish.js';
-import { login } from './login.js';
+import { hasAuth } from './browser.js';
+import { PLATFORMS, getPlatform } from './platforms/index.js';
+import { loginPlatform, loginMany } from './platforms/login.js';
+import { normalizeTags } from './platforms/shared.js';
 
 const PORT = Number(process.env.PORT || 4173);
 const HOST = '127.0.0.1';
@@ -102,6 +103,12 @@ function toWebPath(file) {
   return `/${path.relative(root, file).split(path.sep).join('/')}`;
 }
 
+/** UI 传的封面是文章目录内的相对路径（如 assets/x.png），统一解析成绝对路径 */
+function resolveCover(slug, cover) {
+  if (!cover) return '';
+  return path.isAbsolute(cover) ? cover : path.join(dirs.content, String(slug || ''), String(cover));
+}
+
 function normalizeResult(result) {
   if (!result || typeof result !== 'object') return result;
   if (Array.isArray(result.shots)) return { ...result, shots: result.shots.map(toWebPath) };
@@ -110,13 +117,46 @@ function normalizeResult(result) {
 
 const ACTIONS = {
   build: (job, body) => buildArticle(body.slug),
-  draft: (job, body) => draftArticle(body.slug, { headless: Boolean(body.headless) }),
-  publish: (job, body) =>
-    publishArticle(body.slug, { headless: Boolean(body.headless), execute: Boolean(body.execute) }),
-  login: async () => {
-    const { browser } = await login();
-    await browser.close();
-    return { ok: true };
+  draft: (job, body) =>
+    getPlatform('wechat').draft(body.slug, { headless: Boolean(body.headless) }),
+  publish: (job, body) => {
+    const platform = getPlatform(body.platform || 'wechat');
+    return platform.publish(body.slug, {
+      headless: Boolean(body.headless),
+      execute: platform.id === 'wechat' ? Boolean(body.execute) : body.execute !== false,
+      options: {
+        category: String(body.options?.category || ''),
+        tags: normalizeTags(body.options?.tags),
+        cover: resolveCover(body.slug, body.options?.cover),
+      },
+    });
+  },
+  tags: (job, body) => {
+    const platform = getPlatform(body.platform);
+    if (!platform.fetchTags) return { tags: [] };
+    return platform.fetchTags({ keyword: String(body.keyword || '') });
+  },
+  options: (job, body) => {
+    const platform = getPlatform(body.platform);
+    if (!platform.fetchOptions) return { categories: [] };
+    return platform.fetchOptions({ headless: Boolean(body.headless) });
+  },
+  login: async (job, body) => {
+    const platform = getPlatform(body.platform);
+    if (platform.login) return platform.login({ headless: false });
+    await loginPlatform(platform);
+    return { ok: true, platform: platform.id };
+  },
+  loginAll: () => loginMany(PLATFORMS),
+  open: (job, body) => {
+    const platform = getPlatform(body.platform);
+    const child = spawn(process.execPath, [path.join(root, 'src', 'cli.js'), 'open', platform.id], {
+      cwd: root,
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    return { ok: true, platform: platform.id, homeUrl: platform.homeUrl };
   },
   setup: async (job) => {
     await runCommand(job, 'npm', ['install']);
@@ -180,10 +220,19 @@ async function readState() {
   return {
     articles,
     themes: await listThemes(),
+    platforms: await Promise.all(
+      PLATFORMS.map(async (platform) => ({
+        id: platform.id,
+        name: platform.name,
+        homeUrl: platform.homeUrl,
+        optionsSpec: platform.optionsSpec,
+        tagSuggest: Boolean(platform.fetchTags),
+        auth: await hasAuth(platform.id),
+      })),
+    ),
     env: {
       deps: await exists(path.join(root, 'node_modules', 'playwright')),
       browsers: await exists(playwrightCache),
-      auth: await exists(AUTH_FILE),
       node: process.version,
     },
   };
@@ -349,6 +398,10 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const action = ACTIONS[body.action];
       if (!action) return sendJson(res, 400, { error: '未知操作' });
+      if (body.action === 'login' && !body.platform) {
+        return sendJson(res, 400, { error: '请指定要登录的平台' });
+      }
+      if (body.platform) getPlatform(body.platform);
       if (body.slug) body.slug = safeSlug(body.slug);
       const id = enqueue((job) => action(job, body));
       return sendJson(res, 200, { id });
