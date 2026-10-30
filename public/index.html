@@ -26,7 +26,18 @@
   </div>
 </header>
 
-<nav class="platforms" id="platforms" aria-label="发布平台"></nav>
+<nav class="platforms" aria-label="发布平台">
+  <div class="plat-head">
+    <span class="plat-label mono">发布平台</span>
+    <input id="plat-filter" class="plat-filter" placeholder="筛选平台…" autocomplete="off">
+    <span class="plat-count mono" id="plat-count"></span>
+  </div>
+  <div class="plat-grid" id="platforms"></div>
+  <div class="plat-bar">
+    <span class="plat-current" id="plat-current">未选择平台</span>
+    <span class="plat-actions" id="plat-actions"></span>
+  </div>
+</nav>
 
 <main class="desk">
   <aside class="rail">

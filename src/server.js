@@ -117,6 +117,13 @@ function normalizeResult(result) {
 
 const ACTIONS = {
   build: (job, body) => buildArticle(body.slug),
+  remove: async (job, body) => {
+    const dir = path.join(dirs.content, body.slug);
+    if (!(await exists(dir))) throw new Error(`文章 ${body.slug} 不存在`);
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(path.join(dirs.build, body.slug), { recursive: true, force: true });
+    return { slug: body.slug };
+  },
   draft: (job, body) =>
     getPlatform('wechat').draft(body.slug, { headless: Boolean(body.headless) }),
   publish: (job, body) => {

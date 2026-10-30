@@ -16,6 +16,7 @@ const app = {
   jobId: null,
   jobAction: null,
   publishPlatform: null,
+  platformId: localStorage.getItem('plat') || null,
   logCount: 0,
   logLines: [],
   setupPrompted: false,
@@ -62,23 +63,69 @@ function envChips() {
     .join('');
 }
 
+function selectedPlatform() {
+  return app.platforms.find((platform) => platform.id === app.platformId) || null;
+}
+
 function renderPlatforms() {
-  const box = $('#platforms');
+  const grid = $('#platforms');
+  const keyword = $('#plat-filter').value.trim().toLowerCase();
+  const shown = app.platforms.filter(
+    (platform) =>
+      !keyword ||
+      platform.name.toLowerCase().includes(keyword) ||
+      platform.id.toLowerCase().includes(keyword),
+  );
+
+  if (!app.platforms.some((platform) => platform.id === app.platformId)) {
+    app.platformId = (app.platforms.find((platform) => platform.auth) || app.platforms[0] || {}).id || null;
+    localStorage.setItem('plat', app.platformId || '');
+  }
+
+  grid.innerHTML = '';
+  for (const platform of shown) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = `plat-chip ${platform.auth ? 'authed' : ''} ${
+      platform.id === app.platformId ? 'selected' : ''
+    }`;
+    chip.dataset.platform = platform.id;
+    chip.title = `${platform.name} · ${platform.auth ? '已登录' : '未登录'}`;
+    chip.innerHTML = `<span class="p-dot"></span><span class="p-name"></span>`;
+    chip.querySelector('.p-name').textContent = platform.name;
+    grid.append(chip);
+  }
+
+  $('#plat-count').textContent = keyword
+    ? `${shown.length}/${app.platforms.length}`
+    : `${app.platforms.length} 个平台`;
+  renderPlatformBar();
+}
+
+function renderPlatformBar() {
+  const platform = selectedPlatform();
+  const current = $('#plat-current');
+  current.textContent = platform ? platform.name : '未选择平台';
+  current.classList.toggle('authed', Boolean(platform?.auth));
+
+  const box = $('#plat-actions');
   box.innerHTML = '';
-  for (const platform of app.platforms) {
-    const card = document.createElement('div');
-    card.className = `platform ${platform.auth ? 'authed' : ''}`;
-    card.dataset.platform = platform.id;
-    card.innerHTML = `
-      <span class="p-dot" title="${platform.auth ? '已登录' : '未登录'}"></span>
-      <span class="p-name"></span>
-      <span class="p-actions">
-        ${platform.id === 'wechat' ? '<button class="pbtn" data-plat-action="draft">存草稿</button>' : ''}
-        <button class="pbtn" data-plat-action="${platform.auth ? 'open' : 'login'}">${platform.auth ? '后台' : '登录'}</button>
-        <button class="pbtn primary" data-plat-action="publish">发布</button>
-      </span>`;
-    card.querySelector('.p-name').textContent = platform.name;
-    box.append(card);
+  if (!platform) return;
+
+  const buttons = [];
+  if (!platform.auth) buttons.push({ action: 'login', text: '登录' });
+  if (platform.id === 'wechat') buttons.push({ action: 'draft', text: '存草稿' });
+  if (platform.auth) buttons.push({ action: 'open', text: '后台' });
+  buttons.push({ action: 'publish', text: '发布', primary: true });
+
+  for (const item of buttons) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `pbtn ${item.primary ? 'primary' : ''}`;
+    button.dataset.platAction = item.action;
+    button.textContent = item.text;
+    button.disabled = app.busy;
+    box.append(button);
   }
 }
 
@@ -88,10 +135,14 @@ function renderList() {
   for (const article of app.articles) {
     const li = document.createElement('li');
     li.className = `${article.slug === app.slug ? 'active' : ''} ${article.built ? 'built' : ''}`;
-    li.innerHTML = `<span class="t"></span><span class="s"></span>`;
+    li.innerHTML = `<span class="t"></span><span class="s"></span><button class="del" type="button" title="删除稿件">×</button>`;
     li.querySelector('.t').textContent = article.title || article.slug;
     li.querySelector('.s').textContent = article.slug;
     li.addEventListener('click', () => selectArticle(article.slug));
+    li.querySelector('.del').addEventListener('click', (event) => {
+      event.stopPropagation();
+      removeArticle(article.slug);
+    });
     list.append(li);
   }
   $('#rail-foot').textContent = `${app.articles.length} 篇稿件 · ${app.themes.length} 个主题`;
@@ -143,6 +194,39 @@ async function selectArticle(slug) {
   renderAssets(data.assets || []);
   renderList();
   loadPreview(slug);
+}
+
+/** 清空编辑区，用于删除当前稿件后回到空状态 */
+function resetEditor() {
+  app.slug = null;
+  app.articleFields = {};
+  app.assets = [];
+  app.dirty = false;
+  $('#f-title').value = '';
+  $('#f-author').value = '';
+  $('#f-digest').value = '';
+  $('#f-markdown').value = '';
+  $('#slug-tag').textContent = '—';
+  $('#digest-count').textContent = '0/54';
+  renderAssets([]);
+  setSaveState('未修改', '');
+  loadPreview(null);
+}
+
+async function removeArticle(slug) {
+  if (app.busy) return toast('任务执行中，先等它结束', true);
+  const title = app.articles.find((article) => article.slug === slug)?.title || slug;
+  if (!window.confirm(`删除稿件「${title}」？目录、图片和构建产物会一起删掉，无法恢复。`)) return;
+
+  try {
+    const { id } = await api('/api/action', { action: 'remove', slug });
+    await waitJob(id);
+    if (app.slug === slug) resetEditor();
+    await refreshState();
+    toast(`已删除 ${slug}`);
+  } catch (error) {
+    toast(error.message, true);
+  }
 }
 
 function setSaveState(text, kind) {
@@ -660,17 +744,23 @@ function bind() {
   });
 
   $('#platforms').addEventListener('click', (event) => {
+    const chip = event.target.closest('.plat-chip');
+    if (!chip) return;
+    app.platformId = chip.dataset.platform;
+    localStorage.setItem('plat', app.platformId);
+    renderPlatforms();
+  });
+
+  $('#plat-filter').addEventListener('input', () => renderPlatforms());
+
+  $('#plat-actions').addEventListener('click', (event) => {
     const button = event.target.closest('[data-plat-action]');
-    if (!button) return;
-    const platformId = button.closest('.platform')?.dataset.platform;
-    if (!platformId) return;
+    if (!button || !app.platformId) return;
     const action = button.dataset.platAction;
     if (action === 'publish') {
-      openPublishDialog(platformId);
-    } else if (action === 'draft') {
-      run('draft');
+      openPublishDialog(app.platformId);
     } else {
-      run(action, { platform: platformId });
+      run(action, { platform: app.platformId });
     }
   });
 

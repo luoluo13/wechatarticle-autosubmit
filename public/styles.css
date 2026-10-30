@@ -130,42 +130,101 @@ body {
   z-index: 10;
   flex: none;
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
   border-bottom: 1px solid var(--ink);
   background: linear-gradient(180deg, #ece2cd, #e3d7bf);
-  overflow-x: auto;
 }
-.platforms::-webkit-scrollbar { height: 0; }
 
-.platform {
-  flex: 0 0 auto;
+.plat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 0;
+}
+.plat-label {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: var(--ink-3);
+}
+.plat-filter {
+  flex: 0 1 190px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--ink);
+}
+.plat-filter::placeholder { color: var(--ink-3); }
+.plat-filter:focus { outline: none; border-color: var(--ink); }
+.plat-count { margin-left: auto; font-size: 9.5px; color: var(--ink-3); }
+
+/* 平台多起来以后按网格平铺，可滚动，不再横着一直挤 */
+.plat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 4px;
+  padding: 7px 14px;
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.plat-chip {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 7px 12px;
-  border-right: 1px solid var(--rule);
-  white-space: nowrap;
+  padding: 5px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.32);
+  color: var(--ink-2);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
+.plat-chip:hover { border-color: var(--ink); color: var(--ink); background: rgba(255, 255, 255, 0.6); }
+.plat-chip.selected {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper-hi);
+}
+.plat-chip.selected:hover { background: var(--ink); color: var(--paper-hi); }
 
 .p-dot {
+  flex: none;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--vermilion);
-  box-shadow: 0 0 0 3px rgba(189, 58, 29, 0.12);
 }
-.platform.authed .p-dot {
-  background: var(--moss);
-  box-shadow: 0 0 0 3px rgba(39, 69, 58, 0.12);
-}
+.plat-chip.authed .p-dot { background: var(--moss); }
+.plat-chip.selected .p-dot { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35); }
 
 .p-name {
   font-family: var(--serif);
-  font-size: 12.5px;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.p-actions { display: flex; gap: 4px; margin-left: 4px; }
+.plat-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 7px;
+}
+.plat-current {
+  font-family: var(--serif);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  color: var(--ink);
+}
+.plat-current::before { content: "▸ "; color: var(--vermilion); }
+.plat-current.authed::before { color: var(--moss); }
+.plat-actions { display: flex; gap: 4px; margin-left: auto; }
 
 .pbtn {
   font-family: var(--mono);
@@ -282,7 +341,7 @@ body {
 
 .articles li {
   position: relative;
-  padding: 9px 14px 9px 16px;
+  padding: 9px 32px 9px 16px;
   cursor: pointer;
   border-left: 3px solid transparent;
   transition: background 0.15s ease, border-color 0.15s ease;
@@ -319,6 +378,32 @@ body {
 .articles li.built .s::after {
   content: " · 已构建";
   color: var(--moss);
+}
+
+.articles .del {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 1px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.articles li:hover .del,
+.articles li.active .del { opacity: 1; }
+.articles .del:hover {
+  color: var(--paper-hi);
+  background: var(--vermilion);
+  border-color: var(--vermilion);
 }
 
 .rail-foot {
