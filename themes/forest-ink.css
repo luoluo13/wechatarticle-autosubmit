@@ -1,0 +1,183 @@
+/* ============================================================
+ * forest-ink —— 松墨绿主题（源文件）
+ *
+ * 说明：这份 CSS 是「网页版」写法，包含 CSS 变量、伪元素、
+ * 媒体查询等微信不支持的能力。构建时由 src/theme.js 自动
+ * 预处理成 themes/forest-ink.wechat.css，请不要直接引用
+ * 本文件做内联。
+ * ============================================================ */
+
+#nice {
+  --primary: #2f7a5f;
+  --primary-soft: #eef6f1;
+  --primary-line: #cfe3d8;
+  --text: #3d4642;
+  --text-soft: #7d8a83;
+  --title: #16241d;
+  --border: #e3e9e5;
+  --code-bg: #f4f7f5;
+  --code-text: #1f7a5a;
+
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--text);
+  letter-spacing: 0.04em;
+  text-align: justify;
+  word-break: break-word;
+}
+
+#nice p {
+  margin: 1.2em 0;
+}
+
+/* 一级标题：居中短横线 + 稍宽字距 */
+#nice h1 {
+  margin: 2.4em 0 1.5em;
+  padding-bottom: 14px;
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--title);
+  line-height: 1.5;
+  text-align: center;
+  letter-spacing: 0.08em;
+  background-image: linear-gradient(to right, var(--primary), var(--primary));
+  background-repeat: no-repeat;
+  background-size: 42px 2px;
+  background-position: center bottom;
+}
+
+/* 二级标题：浅底 + 左侧粗竖线，和 orange-heart 区分开 */
+#nice h2 {
+  margin: 2em 0 0.9em;
+  padding: 6px 12px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--title);
+  line-height: 1.5;
+  background: var(--primary-soft);
+  border-left: 4px solid var(--primary);
+}
+
+#nice h3 {
+  margin: 1.6em 0 0.7em;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary);
+  line-height: 1.5;
+}
+
+#nice h4 {
+  margin: 1.4em 0 0.6em;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--title);
+}
+
+#nice strong {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+#nice em {
+  font-style: italic;
+  color: #6a746e;
+}
+
+#nice blockquote {
+  margin: 1.5em 0;
+  padding: 12px 16px;
+  background: var(--primary-soft);
+  border-left: 3px solid var(--primary);
+  border-radius: 2px;
+  color: #5f6b64;
+  font-size: 14px;
+}
+
+#nice blockquote p {
+  margin: 0.4em 0;
+}
+
+#nice ul,
+#nice ol {
+  margin: 1.1em 0;
+  padding-left: 1.5em;
+}
+
+#nice li {
+  margin: 0.5em 0;
+}
+
+#nice a {
+  color: var(--primary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--primary-line);
+}
+
+#nice code {
+  padding: 2px 5px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  color: var(--code-text);
+  background: var(--code-bg);
+  border-radius: 3px;
+}
+
+#nice pre {
+  margin: 1.5em 0;
+  padding: 14px 16px;
+  background: #1f2a25;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+#nice pre code {
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #e8efe9;
+  background: none;
+}
+
+#nice table {
+  width: 100%;
+  margin: 1.5em 0;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+#nice th {
+  padding: 8px 10px;
+  font-weight: 500;
+  color: #ffffff;
+  background: var(--primary);
+  border: 1px solid var(--primary-line);
+}
+
+#nice td {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+}
+
+#nice tr:nth-child(even) td {
+  background: #f8faf9;
+}
+
+#nice img {
+  display: block;
+  max-width: 100%;
+  margin: 1.5em auto;
+  border-radius: 4px;
+}
+
+#nice hr {
+  margin: 2em 0;
+  border: none;
+  border-top: 1px dashed var(--border);
+}
+
+@media (max-width: 600px) {
+  #nice {
+    font-size: 16px;
+  }
+}

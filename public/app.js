@@ -892,8 +892,12 @@ async function boot() {
   bind();
   try {
     await refreshState();
-    const first = app.articles[0];
-    if (first) await selectArticle(first.slug);
+    const wanted = new URLSearchParams(location.search).get('slug');
+    const target = app.articles.find((article) => article.slug === wanted) || app.articles[0];
+    if (target) await selectArticle(target.slug);
+    if (wanted && !app.articles.some((article) => article.slug === wanted)) {
+      toast(`稿件 ${wanted} 不存在`, true);
+    }
   } catch (error) {
     toast(`无法连接本地服务：${error.message}`, true);
   }

@@ -29,7 +29,9 @@
 autosubmit-wechatarticle/
 ├─ content/<slug>/index.md     文章源文件（front-matter + 正文，本地目录，不入库）
 ├─ content/<slug>/assets/      正文与封面用的本地图片
-├─ themes/orange-heart.css     网页版主题（含 CSS 变量、伪元素等）
+├─ themes/orange-heart.css     网页版主题：暖橙
+├─ themes/forest-ink.css       网页版主题：松墨绿
+├─ themes/midnight-blue.css    网页版主题：藏蓝
 ├─ themes/*.wechat.css         预处理后的微信版主题（构建时生成，已忽略）
 ├─ src/
 │  ├─ cli.js                   命令行入口
@@ -39,6 +41,12 @@ autosubmit-wechatarticle/
 │  ├─ checker.js               微信兼容性检查（13 条硬规则）
 │  ├─ browser.js               浏览器启动、登录态读写、调试截图
 │  ├─ server.js                本地 Web UI 服务（无额外依赖）
+│  ├─ studio/                  创作间：模型协议适配、提示词、会话存储
+│  │  ├─ providers.js          OpenAI Chat/Responses、Anthropic、Gemini、自定义接口
+│  │  ├─ prompts.js            内置提示词模板与成文规则
+│  │  ├─ store.js              连接 / 模板 / 会话的本地存储
+│  │  ├─ generate.js           上下文裁剪、文章成稿、导入发布台
+│  │  └─ handler.js            流式对话与成文接口（SSE）
 │  └─ platforms/
 │     ├─ index.js              平台注册表
 │     ├─ login.js              通用登录（打开登录页，轮询到登录后落盘）
@@ -46,8 +54,9 @@ autosubmit-wechatarticle/
 │     ├─ probe.js              抓取平台页面结构（校准选择器用）
 │     ├─ wechat/               公众号专用：编辑器、封面、发表
 │     └─ csdn.js / juejin.js / zhihu.js / cnblogs.js / trae.js
-├─ public/                     Web UI（index.html / styles.css / app.js）
+├─ public/                     Web UI（index.html / styles.css / app.js / studio.*）
 ├─ auth/<platform>.json        各平台登录态（本地生成，已忽略）
+├─ data/studio/                创作间的连接、模板与会话（本地生成，已忽略）
 └─ build/<slug>/               渲染产物与调试截图（已忽略）
 ```
 
@@ -174,11 +183,23 @@ npm run ui          # 等价于 node src/server.js
 
 界面里填的字段保存在 `content/<slug>/article.json`，不需要写进 Markdown 的 front-matter；构建时以 `article.json` 为准，其次才是 front-matter。
 
+### 创作间（/studio）
+
+访问 http://127.0.0.1:4173/studio ，在同一套排版风格的三栏工作台里和模型把文章聊出来，再导入发布台：
+
+- **模型连接**：支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Google Gemini，以及「自定义」任意 HTTP 接口；自定义连接可填请求路径、鉴权方式（Bearer / x-api-key / 自定义头 / 查询参数 / 无鉴权）、请求体模板与响应取值路径。每个连接都能「测试」连通性、「拉模型」列出可用模型。
+- **提示词模板**：内置技术教程、踩坑复盘、工具测评、项目实战、公众号图文、知乎回答体 6 套模板；可以查看、复制成自定义模板再改，内置模板不会被覆盖。
+- **文笔参考**：右侧「文笔参考」可以选一篇已有稿件，模型会学习它的句式、节奏、用词和段落习惯来写新主题；也可以在输入框发 `/style 稿件名` 切换（支持标题、slug、列表序号），`/style off` 关闭，`/style` 列出可选稿件。
+- **多轮对话**：左侧会话列表保存每一次讨论，可以随时切回继续聊；对话与成文都走流式输出，可中途停止。
+- **整理成文章**：点「整理成文章」会把讨论记录整理成 Markdown 放到「成稿」标签，可直接编辑、复制；点「导入发布台」会新建 `content/<slug>/`（含 `index.md` 与 `article.json`），然后自动跳到发布台并选中这篇稿件。
+- **本地存储**：连接、模板、会话保存在 `data/studio/`，已加入 `.gitignore`；API Key 以明文存在本机 `data/studio/connections.json`，不会上传到任何地方。
+
 ## 隐私与安全
 
 - `auth/` 下是各平台完整的登录态凭证（cookie / localStorage），等价于账号密码。已在 `.gitignore` 中忽略，**不要提交、不要分享**。
 - `build/` 包含正文内容、调试截图与后台 URL（含一次性 `token`），同样已忽略。
 - `content/` 保存你的文章与配图，属于个人内容，已忽略，不会出现在仓库里。
+- `data/studio/` 保存创作间的模型连接（含明文 API Key）、提示词模板与会话记录，已忽略，**不要提交、不要分享**。
 - 仓库不包含任何账号信息、token 或本地绝对路径。
 
 ## 已知限制

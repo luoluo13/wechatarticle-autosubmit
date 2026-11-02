@@ -11,6 +11,24 @@ import { hasAuth } from './browser.js';
 import { PLATFORMS, getPlatform } from './platforms/index.js';
 import { loginPlatform, loginMany } from './platforms/login.js';
 import { normalizeTags } from './platforms/shared.js';
+import {
+  createSession,
+  getConnection,
+  listConnections,
+  listSessions,
+  listTemplates,
+  publicConnection,
+  readSession,
+  removeConnection,
+  removeSession,
+  removeTemplate,
+  saveConnection,
+  saveTemplate,
+  writeSession,
+} from './studio/store.js';
+import { AUTH_TYPES, PROTOCOLS, listModels, testConnection } from './studio/providers.js';
+import { importArticle } from './studio/generate.js';
+import { handleChat } from './studio/handler.js';
 
 const PORT = Number(process.env.PORT || 4173);
 const HOST = '127.0.0.1';
@@ -364,7 +382,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
       return serveStatic(res, PUBLIC_DIR, 'index.html');
     }
-    if (req.method === 'GET' && (pathname === '/app.js' || pathname === '/styles.css')) {
+    if (req.method === 'GET' && (pathname === '/studio' || pathname === '/studio.html')) {
+      return serveStatic(res, PUBLIC_DIR, 'studio.html');
+    }
+    if (
+      req.method === 'GET' &&
+      ['/app.js', '/styles.css', '/studio.js', '/studio.css'].includes(pathname)
+    ) {
       return serveStatic(res, PUBLIC_DIR, pathname.slice(1));
     }
     if (req.method === 'GET' && pathname.startsWith('/build/')) {
@@ -412,6 +436,117 @@ const server = http.createServer(async (req, res) => {
       if (body.slug) body.slug = safeSlug(body.slug);
       const id = enqueue((job) => action(job, body));
       return sendJson(res, 200, { id });
+    }
+
+    /* ---------------------------------- 创作间 --------------------------------- */
+
+    if (req.method === 'GET' && pathname === '/api/studio/state') {
+      const articles = [];
+      for (const slug of await listArticles()) {
+        try {
+          const { fields } = await loadArticle(slug);
+          articles.push({ slug, title: fields.title || slug });
+        } catch {
+          articles.push({ slug, title: slug });
+        }
+      }
+      return sendJson(res, 200, {
+        connections: (await listConnections()).map(publicConnection),
+        templates: await listTemplates(),
+        sessions: await listSessions(),
+        articles,
+        protocols: PROTOCOLS,
+        authTypes: AUTH_TYPES,
+        platforms: PLATFORMS.map((platform) => ({ id: platform.id, name: platform.name })),
+      });
+    }
+
+    if (req.method === 'POST' && pathname === '/api/studio/connection') {
+      return sendJson(res, 200, await saveConnection(await readJson(req)));
+    }
+
+    if (req.method === 'POST' && pathname === '/api/studio/connection/remove') {
+      const body = await readJson(req);
+      return sendJson(res, 200, await removeConnection(String(body.id || '')));
+    }
+
+    if (req.method === 'POST' && pathname === '/api/studio/connection/test') {
+      const body = await readJson(req);
+      const saved = body.id ? await getConnection(body.id) : null;
+      const merged = { ...(saved || {}) };
+      for (const [key, value] of Object.entries(body.connection || {})) {
+        if (value !== '' && value !== null && value !== undefined) merged[key] = value;
+      }
+      if (!saved && body.connection?.apiKey === undefined) merged.apiKey = '';
+      if (!merged.model) return sendJson(res, 400, { error: '请先填写模型名' });
+      return sendJson(res, 200, await testConnection(merged));
+    }
+
+    if (req.method === 'GET' && pathname === '/api/studio/models') {
+      const connection = await getConnection(url.searchParams.get('id'));
+      if (!connection) return sendJson(res, 404, { error: '连接不存在' });
+      return sendJson(res, 200, { models: await listModels(connection) });
+    }
+
+    if (req.method === 'POST' && pathname === '/api/studio/template') {
+      return sendJson(res, 200, await saveTemplate(await readJson(req)));
+    }
+
+    if (req.method === 'POST' && pathname === '/api/studio/template/remove') {
+      const body = await readJson(req);
+      return sendJson(res, 200, await removeTemplate(String(body.id || '')));
+    }
+
+    if (req.method === 'POST' && pathname === '/api/studio/session') {
+      return sendJson(res, 200, await createSession(await readJson(req)));
+    }
+
+    if (req.method === 'GET' && pathname === '/api/studio/session') {
+      return sendJson(res, 200, await readSession(url.searchParams.get('id')));
+    }
+
+    if (req.method === 'POST' && pathname === '/api/studio/session/draft') {
+      const body = await readJson(req);
+      const session = await readSession(body.id);
+      if (typeof body.draft === 'string') session.draft = body.draft;
+      if (body.connectionId !== undefined) session.connectionId = String(body.connectionId || '');
+      if (body.templateId !== undefined) session.templateId = String(body.templateId || '');
+      if (body.platform !== undefined) session.platform = String(body.platform || '');
+      if (body.params && typeof body.params === 'object') {
+        session.params = { ...session.params, ...body.params };
+      }
+      if (body.title) session.title = String(body.title);
+      session.updatedAt = new Date().toISOString();
+      await writeSession(session);
+      return sendJson(res, 200, {
+        id: session.id,
+        draft: session.draft,
+        updatedAt: session.updatedAt,
+      });
+    }
+
+    if (req.method === 'POST' && pathname === '/api/studio/session/remove') {
+      const body = await readJson(req);
+      return sendJson(res, 200, await removeSession(String(body.id || '')));
+    }
+
+    if (req.method === 'POST' && pathname === '/api/studio/chat') {
+      return handleChat(req, res, readJson);
+    }
+
+    if (req.method === 'POST' && pathname === '/api/studio/import') {
+      const body = await readJson(req);
+      const session = await readSession(body.sessionId);
+      const result = await importArticle({
+        markdown: body.markdown ?? session.draft,
+        title: body.title,
+        slug: body.slug,
+        fields: body.fields || {},
+      });
+      session.articleSlug = result.slug;
+      session.updatedAt = new Date().toISOString();
+      await writeSession(session);
+      return sendJson(res, 200, result);
     }
 
     sendJson(res, 404, { error: 'Not found' });

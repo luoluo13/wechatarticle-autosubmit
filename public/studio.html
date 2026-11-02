@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>创作间 · 排字间</title>
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/studio.css">
+</head>
+<body class="studio-body">
+<div class="grain" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="seal">创</span>
+    <div class="brand-text">
+      <strong>创作间</strong>
+      <span>STUDIO · 先聊清楚，再写成文章</span>
+    </div>
+  </div>
+
+  <div class="env" id="studio-env" aria-live="polite"></div>
+
+  <div class="actions">
+    <a class="btn ghost" href="/">← 发布台</a>
+  </div>
+</header>
+
+<main class="studio">
+  <aside class="studio-rail">
+    <div class="rail-head">
+      <h2>会话</h2>
+      <button class="btn tiny" id="new-session">新建</button>
+    </div>
+    <ul class="sessions" id="sessions"></ul>
+
+    <div class="rail-head">
+      <h2>模型连接</h2>
+      <button class="btn tiny" id="new-connection">添加</button>
+    </div>
+    <ul class="connections" id="connections"></ul>
+  </aside>
+
+  <section class="studio-main">
+    <div class="chat-tabs">
+      <button class="tab active" data-view="chat" type="button">对话</button>
+      <button class="tab" data-view="draft" type="button">成稿</button>
+      <span class="chat-state mono" id="chat-state"></span>
+    </div>
+
+    <div class="chat-pane" id="chat-pane">
+      <div class="messages" id="messages">
+        <p class="chat-empty">先聊选题和大纲，聊顺了就点「整理成文章」。</p>
+      </div>
+      <div class="composer">
+        <div class="command-menu" id="command-menu" hidden>
+          <ul id="command-list"></ul>
+          <p class="command-hint">Tab 补全 · ↑↓ 选择 · Esc 关闭</p>
+        </div>
+        <textarea id="composer-input" placeholder="说说你想写什么，或回答追问。Enter 发送，Shift+Enter 换行；/style 稿件名 切换文笔参考。"></textarea>
+        <div class="composer-actions">
+          <button class="btn tiny" id="compose-btn" type="button">整理成文章</button>
+          <button class="btn ghost" id="stop-btn" type="button" hidden>停止</button>
+          <button class="btn" id="send-btn" type="button">发送</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="draft-pane" id="draft-pane" hidden>
+      <div class="draft-head">
+        <span class="mono" id="draft-info">还没有成稿</span>
+        <div class="draft-tools">
+          <button class="btn tiny" id="copy-draft" type="button">复制</button>
+          <button class="btn tiny" id="improve-draft" type="button">继续修改</button>
+          <button class="btn" id="import-draft" type="button">导入发布台</button>
+        </div>
+      </div>
+      <textarea id="draft-text" spellcheck="false" placeholder="这里会放整理好的 Markdown，可以直接改。"></textarea>
+    </div>
+  </section>
+
+  <aside class="studio-side">
+    <div class="side-block">
+      <h3>连接</h3>
+      <select id="connection-select"></select>
+      <div class="row">
+        <button class="btn tiny" id="edit-connection" type="button">编辑</button>
+        <button class="btn tiny" id="test-connection" type="button">测试</button>
+        <button class="btn tiny" id="pull-models" type="button">拉模型</button>
+      </div>
+    </div>
+
+    <div class="side-block">
+      <h3>提示词模板</h3>
+      <select id="template-select"></select>
+      <div class="row">
+        <button class="btn tiny" id="edit-template" type="button">查看 / 复制</button>
+        <button class="btn tiny" id="delete-template" type="button">删除</button>
+      </div>
+    </div>
+
+    <div class="side-block">
+      <h3>文笔参考</h3>
+      <select id="style-select"></select>
+      <p class="hint">也可以发 <code>/style 稿件名</code> 切换。</p>
+    </div>
+
+    <div class="side-block">
+      <h3>目标与参数</h3>
+      <label class="field"><span>目标平台</span><select id="platform-select"></select></label>
+      <label class="field"><span>目标读者</span><input id="audience" placeholder="例如 有 Linux 基础的运维" autocomplete="off"></label>
+      <label class="field"><span>语气</span><input id="tone" placeholder="例如 直白、克制" autocomplete="off"></label>
+      <label class="field"><span>篇幅</span><input id="length" placeholder="例如 2000 字以内" autocomplete="off"></label>
+      <label class="field"><span>关键词</span><input id="keywords" placeholder="逗号分隔" autocomplete="off"></label>
+      <div class="row">
+        <label class="field"><span>温度</span><input id="temperature" type="number" step="0.1" min="0" max="2" value="0.7"></label>
+        <label class="field"><span>最大 token</span><input id="max-tokens" type="number" min="0" step="256" value="0"></label>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<dialog id="connection-dialog">
+  <form method="dialog" class="dialog-body" id="connection-form">
+    <h3 id="connection-title">新建连接</h3>
+
+    <div class="field-row">
+      <label class="field">
+        <span>名称</span>
+        <input id="c-name" placeholder="例如 DeepSeek 官方" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>协议</span>
+        <select id="c-protocol"></select>
+      </label>
+    </div>
+
+    <p class="hint" id="c-protocol-hint"></p>
+
+    <label class="field">
+      <span>Base URL</span>
+      <input id="c-base" placeholder="https://api.deepseek.com/v1" autocomplete="off">
+    </label>
+
+    <div class="field-row">
+      <label class="field">
+        <span>模型</span>
+        <input id="c-model" placeholder="deepseek-chat" autocomplete="off" list="c-models">
+        <datalist id="c-models"></datalist>
+      </label>
+      <label class="field">
+        <span>API Key</span>
+        <input id="c-key" type="password" placeholder="留空表示沿用已保存的 Key" autocomplete="off">
+      </label>
+    </div>
+
+    <p class="hint" id="c-key-hint"></p>
+
+    <div class="field-row">
+      <label class="field">
+        <span>鉴权方式</span>
+        <select id="c-auth-type"></select>
+      </label>
+      <label class="field">
+        <span>请求头 / 参数名</span>
+        <input id="c-auth-name" placeholder="自定义鉴权时填，如 api-key" autocomplete="off">
+      </label>
+    </div>
+
+    <details id="c-custom-block" class="c-custom">
+      <summary>自定义接口细节</summary>
+      <label class="field">
+        <span>请求路径</span>
+        <input id="c-path" placeholder="/v1/chat/completions" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>请求体模板（支持 {{model}} {{messages}} {{system}} {{prompt}} {{temperature}} {{maxTokens}} {{topP}} {{stream}}）</span>
+        <textarea id="c-body" rows="7" spellcheck="false"></textarea>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>响应取值路径</span>
+          <input id="c-response-path" placeholder="choices[0].message.content" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>流式增量路径</span>
+          <input id="c-delta-path" placeholder="choices[0].delta.content" autocomplete="off">
+        </label>
+      </div>
+    </details>
+
+    <div class="field-row">
+      <label class="field"><span>默认温度</span><input id="c-temperature" type="number" step="0.1" min="0" max="2" value="0.7"></label>
+      <label class="field"><span>默认最大 token</span><input id="c-max-tokens" type="number" min="0" step="256" value="0"></label>
+    </div>
+
+    <div class="field-row">
+      <label class="field"><span>输入单价 / 百万 token</span><input id="c-price-in" type="number" step="0.01" min="0" value="0"></label>
+      <label class="field"><span>输出单价 / 百万 token</span><input id="c-price-out" type="number" step="0.01" min="0" value="0"></label>
+    </div>
+
+    <pre class="mono dialog-log" id="c-result"></pre>
+
+    <div class="dialog-actions">
+      <button class="btn ghost" id="c-remove" type="button" hidden>删除连接</button>
+      <span class="grow"></span>
+      <button class="btn ghost" id="c-test" type="button">测试连接</button>
+      <button class="btn ghost" data-close type="button">取消</button>
+      <button class="btn" id="c-save" type="button">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="template-dialog">
+  <form method="dialog" class="dialog-body">
+    <h3 id="template-title">提示词模板</h3>
+    <div class="field-row">
+      <label class="field"><span>名称</span><input id="t-name" autocomplete="off"></label>
+      <label class="field"><span>说明</span><input id="t-desc" autocomplete="off"></label>
+    </div>
+    <label class="field">
+      <span>System</span>
+      <textarea id="t-system" rows="5" spellcheck="false"></textarea>
+    </label>
+    <label class="field">
+      <span>User 模板</span>
+      <textarea id="t-user" rows="8" spellcheck="false"></textarea>
+    </label>
+    <p class="hint">可用占位符：{{topic}} {{outline}} {{audience}} {{tone}} {{length}} {{keywords}} {{platform}}。内置模板保存时会另存为自定义模板。</p>
+    <div class="dialog-actions">
+      <button class="btn ghost" data-close type="button">取消</button>
+      <button class="btn" id="t-save" type="button">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="import-dialog">
+  <form method="dialog" class="dialog-body">
+    <h3>导入发布台</h3>
+    <label class="field"><span>标题</span><input id="i-title" autocomplete="off"></label>
+    <label class="field"><span>目录名（slug）</span><input id="i-slug" autocomplete="off"></label>
+    <label class="field"><span>标签（逗号分隔）</span><input id="i-tags" autocomplete="off"></label>
+    <label class="field"><span>摘要</span><textarea id="i-digest" rows="2"></textarea></label>
+    <p class="hint">会新建 <code>content/&lt;slug&gt;/index.md</code> 与 <code>article.json</code>，图片稍后在发布台里补。</p>
+    <div class="dialog-actions">
+      <button class="btn ghost" data-close type="button">取消</button>
+      <button class="btn" id="i-confirm" type="button">导入并去发布</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script type="module" src="/studio.js"></script>
+</body>
+</html>

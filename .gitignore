@@ -3,5 +3,6 @@ build/
 content/
 themes/*.wechat.css
 auth/
+data/
 *.log
 .DS_Store

@@ -1,0 +1,182 @@
+/* ============================================================
+ * midnight-blue —— 藏蓝主题（源文件）
+ *
+ * 说明：这份 CSS 是「网页版」写法，包含 CSS 变量、伪元素、
+ * 媒体查询等微信不支持的能力。构建时由 src/theme.js 自动
+ * 预处理成 themes/midnight-blue.wechat.css，请不要直接引用
+ * 本文件做内联。
+ * ============================================================ */
+
+#nice {
+  --primary: #2b5f8f;
+  --primary-soft: #eef4fa;
+  --primary-line: #d2e1ef;
+  --text: #3c4652;
+  --text-soft: #7c8694;
+  --title: #14202e;
+  --border: #e2e8ee;
+  --code-bg: #f4f6f9;
+  --code-text: #1d5c8f;
+
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text);
+  letter-spacing: 0.03em;
+  text-align: justify;
+  word-break: break-word;
+}
+
+#nice p {
+  margin: 1.2em 0;
+}
+
+/* 一级标题：居中小方块装饰 */
+#nice h1 {
+  margin: 2.2em 0 1.4em;
+  padding-bottom: 16px;
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--title);
+  line-height: 1.5;
+  text-align: center;
+  letter-spacing: 0.02em;
+  background-image: linear-gradient(to right, var(--primary), var(--primary));
+  background-repeat: no-repeat;
+  background-size: 10px 10px;
+  background-position: center bottom;
+}
+
+/* 二级标题：整行下划线，视觉更克制 */
+#nice h2 {
+  margin: 2em 0 0.9em;
+  padding-bottom: 7px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--title);
+  line-height: 1.5;
+  border-bottom: 1px solid var(--primary);
+}
+
+#nice h3 {
+  margin: 1.6em 0 0.7em;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary);
+  line-height: 1.5;
+}
+
+#nice h4 {
+  margin: 1.4em 0 0.6em;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--title);
+}
+
+#nice strong {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+#nice em {
+  font-style: italic;
+  color: #68727f;
+}
+
+#nice blockquote {
+  margin: 1.5em 0;
+  padding: 12px 16px;
+  background: var(--primary-soft);
+  border-left: 3px solid var(--primary);
+  border-radius: 2px;
+  color: #5f6a77;
+  font-size: 14px;
+}
+
+#nice blockquote p {
+  margin: 0.4em 0;
+}
+
+#nice ul,
+#nice ol {
+  margin: 1.1em 0;
+  padding-left: 1.5em;
+}
+
+#nice li {
+  margin: 0.5em 0;
+}
+
+#nice a {
+  color: var(--primary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--primary-line);
+}
+
+#nice code {
+  padding: 2px 5px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  color: var(--code-text);
+  background: var(--code-bg);
+  border-radius: 3px;
+}
+
+#nice pre {
+  margin: 1.5em 0;
+  padding: 14px 16px;
+  background: #1b2430;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+#nice pre code {
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #e7edf5;
+  background: none;
+}
+
+#nice table {
+  width: 100%;
+  margin: 1.5em 0;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+#nice th {
+  padding: 8px 10px;
+  font-weight: 500;
+  color: #ffffff;
+  background: var(--primary);
+  border: 1px solid var(--primary-line);
+}
+
+#nice td {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+}
+
+#nice tr:nth-child(even) td {
+  background: #f8f9fb;
+}
+
+#nice img {
+  display: block;
+  max-width: 100%;
+  margin: 1.5em auto;
+  border-radius: 4px;
+}
+
+#nice hr {
+  margin: 2em 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 600px) {
+  #nice {
+    font-size: 16px;
+  }
+}

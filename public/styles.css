@@ -272,6 +272,12 @@ body {
   background: transparent;
   color: var(--ink);
 }
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
 .btn.danger {
   background: var(--vermilion);
   border-color: var(--vermilion);
