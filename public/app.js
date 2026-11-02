@@ -1,4 +1,4 @@
-const $ = (selector) => document.querySelector(selector);
+/* 全局工具 $ / api / toast 来自 common.js */
 
 const app = {
   articles: [],
@@ -15,7 +15,9 @@ const app = {
   dirty: false,
   busy: false,
   saveTimer: null,
-  jobId: null,
+  jobToken: 0,
+  loadToken: 0,
+  tagToken: 0,
   jobAction: null,
   publishPlatform: null,
   platformId: localStorage.getItem('plat') || null,
@@ -25,26 +27,6 @@ const app = {
 };
 
 /* ---------------------------------- 基础工具 -------------------------------- */
-
-async function api(path, body) {
-  const options = body
-    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
-    : {};
-  const res = await fetch(path, options);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return data;
-}
-
-let toastTimer;
-function toast(message, isError = false) {
-  const el = $('#toast');
-  el.textContent = message;
-  el.classList.toggle('err', Boolean(isError));
-  el.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
-}
 
 async function copyText(text) {
   try {
@@ -297,7 +279,10 @@ async function selectArticle(slug) {
   if (slug === app.slug) return;
   if (app.dirty) await save();
 
+  // 连续点击不同稿件时，只让最后一次请求的结果落地
+  const token = ++app.loadToken;
   const data = await api(`/api/article?slug=${encodeURIComponent(slug)}`);
+  if (token !== app.loadToken) return;
   app.slug = slug;
   app.articleFields = data.fields || {};
   app.assets = data.assets || [];
@@ -503,6 +488,7 @@ async function saveAsset(file) {
 }
 
 async function uploadImage(file) {
+  if (app.busy) return toast('任务执行中，先等它结束', true);
   if (!app.slug) return toast('先选择或新建一篇文章', true);
   if (!file.type.startsWith('image/')) return;
   const result = await saveAsset(file);
@@ -544,9 +530,22 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function setBusy(busy) {
   app.busy = busy;
-  document.querySelectorAll('[data-action], [data-plat-action]').forEach((button) => {
-    button.disabled = busy;
-  });
+  document
+    .querySelectorAll(
+      '[data-action], [data-plat-action], #import-md, #pick-image, #new-article, #theme-import',
+    )
+    .forEach((button) => {
+      button.disabled = busy;
+    });
+
+  // 构建会压缩 / 改名图片并回写正文，期间锁住编辑区，避免输入被同步结果覆盖
+  for (const id of ['#f-title', '#f-author', '#f-digest', '#f-markdown']) {
+    const field = $(id);
+    if (field) field.readOnly = busy;
+  }
+  const themeSelect = $('#f-theme');
+  if (themeSelect) themeSelect.disabled = busy || !themePlatform();
+  if (!busy) renderThemeField();
 }
 
 function appendLog(lines) {
@@ -571,12 +570,14 @@ function appendLog(lines) {
 }
 
 async function run(action, extra = {}) {
+  if (app.busy) return toast('任务执行中，先等它结束', true);
   if (['build', 'draft', 'publish'].includes(action) && !app.slug) {
     return toast('先选择或新建一篇文章', true);
   }
   if (app.dirty && action !== 'loginAll' && action !== 'open') await save();
 
   setBusy(true);
+  const token = ++app.jobToken;
   app.jobAction = action;
   app.publishPlatform = extra.platform || null;
   app.logLines = [];
@@ -591,11 +592,10 @@ async function run(action, extra = {}) {
 
   try {
     const { id } = await api('/api/action', { action, slug: app.slug, ...extra });
-    app.jobId = id;
     switchTab('log');
-    pollJob(id);
+    pollJob(id, token);
   } catch (error) {
-    setBusy(false);
+    if (token === app.jobToken) setBusy(false);
     toast(error.message, true);
   }
 }
@@ -611,85 +611,98 @@ async function waitJob(id, timeout = 180000) {
   throw new Error('等待任务超时');
 }
 
-async function pollJob(id) {
-  const job = await api(`/api/job?id=${id}`);
-  if (job.logs.length > app.logCount) {
-    appendLog(job.logs.slice(app.logCount));
-    app.logCount = job.logs.length;
-  }
+async function pollJob(id, token) {
+  if (token !== app.jobToken) return;
+  try {
+    const job = await api(`/api/job?id=${id}`);
+    if (token !== app.jobToken) return;
 
-  if (job.status === 'queued' || job.status === 'running') {
-    setTimeout(() => pollJob(id), 700);
-    return;
-  }
-
-  setBusy(false);
-  await refreshState();
-
-  if (job.status === 'error') {
-    toast(`${ACTION_LABEL[app.jobAction]}失败：${job.error}`, true);
-    appendLog([`✗ ${job.error}`]);
-    // 构建失败也可能已经压缩并改名了图片，把最新引用拉回来避免下次再撞「图片不存在」
-    if (app.jobAction === 'build') await syncArticleFiles().catch(() => {});
-    return;
-  }
-
-  const result = job.result || {};
-  if (app.jobAction === 'build') {
-    appendLog([`✓ 构建完成 · ${(result.size / 1024).toFixed(1)}KB`]);
-    if (result.renamed) {
-      await syncArticleFiles().catch(() => {});
-      appendLog([`· 已同步 ${result.renamed} 处图片引用`]);
-      toast('构建完成，图片引用已同步');
-    } else {
-      toast('构建完成');
+    if (job.logs.length > app.logCount) {
+      appendLog(job.logs.slice(app.logCount));
+      app.logCount = job.logs.length;
     }
-    loadPreview(app.slug);
-    switchTab('preview');
-  } else if (app.jobAction === 'draft') {
-    appendLog([
-      `封面：${result.cover?.ok ? '已从正文选择' : `失败（${result.cover?.reason || '未知'}）`}`,
-      '✓ 草稿已保存',
-    ]);
-    toast('草稿已保存');
-  } else if (app.jobAction === 'publish') {
-    if (app.publishPlatform === 'wechat') {
-      if (!result.publish?.executed) {
-        appendLog([`· 未提交：${result.publish?.reason || '未执行'}`]);
-        toast('未提交');
-      } else {
-        appendLog([
-          `群发通知：${result.publish.groupSendOff ? '已关闭' : '未关闭，请检查后台'}`,
-          result.publish.ok ? '✓ 发表成功' : '· 已提交，但未检测到成功提示',
-        ]);
-        toast(result.publish.ok ? '发表成功' : '已提交，请到后台确认');
+
+    if (job.status === 'queued' || job.status === 'running') {
+      setTimeout(() => pollJob(id, token), 700);
+      return;
+    }
+
+    try {
+      // 状态刷新失败不影响任务结果展示，但必须保证 busy 一定会被释放
+      await refreshState().catch((error) => toast(`刷新状态失败：${error.message}`, true));
+
+      if (job.status === 'error') {
+        toast(`${ACTION_LABEL[app.jobAction]}失败：${job.error}`, true);
+        appendLog([`✗ ${job.error}`]);
+        // 构建失败也可能已经压缩并改名了图片，把最新引用拉回来避免下次再撞「图片不存在」
+        if (app.jobAction === 'build') await syncArticleFiles().catch(() => {});
+        return;
       }
-    } else if (result.ok) {
-      appendLog([`✓ 已发布${result.url ? `：${result.url}` : ''}`]);
-      toast('发布成功');
-    } else {
-      appendLog([`· 未能确认发布结果${result.url ? `：${result.url}` : ''}`]);
-      toast('已提交，请到平台确认');
+
+      const result = job.result || {};
+      if (app.jobAction === 'build') {
+        appendLog([`✓ 构建完成 · ${(result.size / 1024).toFixed(1)}KB`]);
+        if (result.renamed) {
+          await syncArticleFiles().catch(() => {});
+          appendLog([`· 已同步 ${result.renamed} 处图片引用`]);
+          toast('构建完成，图片引用已同步');
+        } else {
+          toast('构建完成');
+        }
+        loadPreview(app.slug);
+        switchTab('preview');
+      } else if (app.jobAction === 'draft') {
+        appendLog([
+          `封面：${result.cover?.ok ? '已从正文选择' : `失败（${result.cover?.reason || '未知'}）`}`,
+          '✓ 草稿已保存',
+        ]);
+        toast('草稿已保存');
+      } else if (app.jobAction === 'publish') {
+        if (app.publishPlatform === 'wechat') {
+          if (!result.publish?.executed) {
+            appendLog([`· 未提交：${result.publish?.reason || '未执行'}`]);
+            toast('未提交');
+          } else {
+            appendLog([
+              `群发通知：${result.publish.groupSendOff ? '已关闭' : '未关闭，请检查后台'}`,
+              result.publish.ok ? '✓ 发表成功' : '· 已提交，但未检测到成功提示',
+            ]);
+            toast(result.publish.ok ? '发表成功' : '已提交，请到后台确认');
+          }
+        } else if (result.ok) {
+          appendLog([`✓ 已发布${result.url ? `：${result.url}` : ''}`]);
+          toast('发布成功');
+        } else {
+          appendLog([`· 未能确认发布结果${result.url ? `：${result.url}` : ''}`]);
+          toast('已提交，请到平台确认');
+        }
+        if (result.note) appendLog([`· ${result.note}`]);
+      } else if (app.jobAction === 'login') {
+        appendLog(['✓ 登录态已保存']);
+        toast('登录成功');
+      } else if (app.jobAction === 'loginAll') {
+        const saved = result.saved || [];
+        const pending = result.pending || [];
+        appendLog([
+          `✓ 已登录：${saved.join(' / ') || '无'}`,
+          ...(pending.length ? [`! 未登录：${pending.join(' / ')}`] : []),
+        ]);
+        toast(pending.length ? `还有 ${pending.length} 个平台未登录` : '全部平台已登录');
+      } else if (app.jobAction === 'open') {
+        appendLog([`✓ 已打开 ${result.homeUrl || '平台后台'}`]);
+        toast('已在浏览器打开后台');
+      } else if (app.jobAction === 'setup') {
+        $('#setup-dialog').close();
+        appendLog(['✓ 依赖安装完成']);
+        toast('依赖已就绪');
+      }
+    } finally {
+      setBusy(false);
     }
-    if (result.note) appendLog([`· ${result.note}`]);
-  } else if (app.jobAction === 'login') {
-    appendLog(['✓ 登录态已保存']);
-    toast('登录成功');
-  } else if (app.jobAction === 'loginAll') {
-    const saved = result.saved || [];
-    const pending = result.pending || [];
-    appendLog([
-      `✓ 已登录：${saved.join(' / ') || '无'}`,
-      ...(pending.length ? [`! 未登录：${pending.join(' / ')}`] : []),
-    ]);
-    toast(pending.length ? `还有 ${pending.length} 个平台未登录` : '全部平台已登录');
-  } else if (app.jobAction === 'open') {
-    appendLog([`✓ 已打开 ${result.homeUrl || '平台后台'}`]);
-    toast('已在浏览器打开后台');
-  } else if (app.jobAction === 'setup') {
-    $('#setup-dialog').close();
-    appendLog(['✓ 依赖安装完成']);
-    toast('依赖已就绪');
+  } catch (error) {
+    if (token !== app.jobToken) return;
+    setBusy(false);
+    toast(`任务状态读取失败：${error.message}`, true);
   }
 }
 
@@ -717,6 +730,7 @@ async function openPublishDialog(platformId) {
   if (!app.slug) return toast('先选择或新建一篇文章', true);
   const article = app.articles.find((item) => item.slug === app.slug);
   if (!article?.built) return toast('这篇文章还没有构建，请先构建预览再发布', true);
+  if (article?.stale) return toast('稿件在构建后被修改过，请重新构建预览再发布', true);
   if (app.dirty) await save();
 
   const platform = app.platforms.find((item) => item.id === platformId);
@@ -807,6 +821,7 @@ async function loadTagSuggestions(hot = false) {
   const box = $('#pd-tags-suggest');
   if (!platform?.tagSuggest) return;
   box.hidden = true;
+  const token = ++app.tagToken;
 
   // 打开弹窗时先拉平台热门标签；输入后只拿最后一个还没分隔的词去搜
   const keyword = hot ? '' : $('#pd-tags').value.split(/[,，、#]+/).pop().trim();
@@ -816,7 +831,7 @@ async function loadTagSuggestions(hot = false) {
     keyword,
   });
   const result = await waitJob(id);
-  if (app.publishPlatform !== platform.id) return;
+  if (token !== app.tagToken || app.publishPlatform !== platform.id) return;
   renderTagSuggest(result.tags || []);
 }
 
@@ -894,6 +909,7 @@ async function loadPlatformOptions(platformId) {
   try {
     const { id } = await api('/api/action', { action: 'options', platform: platformId });
     const result = await waitJob(id);
+    if (app.publishPlatform !== platformId) return;
     const categories = (result.categories || []).map((item) =>
       typeof item === 'string' ? { value: item, label: item } : item,
     );
@@ -918,7 +934,7 @@ async function loadPlatformOptions(platformId) {
     select.innerHTML = '<option value="">读取失败，可稍后重试</option>';
     toast(`分类读取失败：${error.message}`, true);
   } finally {
-    confirm.disabled = false;
+    if (app.publishPlatform === platformId) confirm.disabled = false;
   }
 }
 
@@ -1030,9 +1046,13 @@ function bind() {
     run('setup');
   });
 
-  for (const id of ['#f-title', '#f-author', '#f-digest']) {
+  for (const id of ['#f-title', '#f-author']) {
     $(id).addEventListener('input', markDirty);
   }
+  $('#f-digest').addEventListener('input', () => {
+    markDirty();
+    $('#digest-count').textContent = `${$('#f-digest').value.length}/54`;
+  });
   $('#f-theme').addEventListener('change', () => {
     const platform = themePlatform();
     if (platform) app.themeSelection[platform] = $('#f-theme').value;
@@ -1098,7 +1118,6 @@ function bind() {
       });
       app.themeSelection[platform] = result.id;
       await refreshState();
-      renderThemeField();
       markDirty();
       toast(`已导入主题 ${result.id}`);
     } catch (error) {
@@ -1106,9 +1125,6 @@ function bind() {
     }
   });
   $('#f-markdown').addEventListener('input', markDirty);
-  $('#f-digest').addEventListener('input', () => {
-    $('#digest-count').textContent = `${$('#f-digest').value.length}/54`;
-  });
 
   $('#import-md').addEventListener('click', () => $('#md-input').click());
   $('#md-input').addEventListener('change', async (event) => {

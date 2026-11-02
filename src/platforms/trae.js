@@ -1,6 +1,11 @@
 import fs from 'node:fs/promises';
 import { openSession, ensureDebugDir, shot } from '../browser.js';
-import { loadContent, normalizeTags, replaceImageSources } from './shared.js';
+import {
+  loadContent,
+  normalizeTags,
+  replaceImageSources,
+  waitPublishResult,
+} from './shared.js';
 
 const EDITOR_URL = 'https://forum.trae.cn/new-topic';
 const TITLE_SELECTOR = '#reply-title';
@@ -97,29 +102,15 @@ async function addTags(page, tags) {
   return added;
 }
 
-async function waitPublishResult(page, timeout = 90000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    if (/forum\.trae\.cn\/t\/[^/]+\/\d+/.test(page.url())) return { ok: true, url: page.url() };
-    // 只认编辑器自己的报错，页面里别人的帖子标题会包含「失败」之类的字眼
-    let hint = '';
-    try {
-      hint = await page.evaluate(() => {
-        const nodes = [...document.querySelectorAll('.composer-error, .d-editor-container .alert-error, .modal-body .error')]
-          .filter((el) => el.getClientRects().length)
-          .map((el) => (el.innerText || '').trim())
-          .filter(Boolean);
-        return nodes.join(' / ').slice(0, 120);
-      });
-    } catch {
-      await page.waitForTimeout(1500);
-      continue;
-    }
-    if (hint) return { ok: false, note: hint };
-    await page.waitForTimeout(1500);
-  }
-  return { ok: false, note: '等待发布结果超时，请查看截图确认' };
-}
+// 只认编辑器自己的报错，页面里别人的帖子标题会包含「失败」之类的字眼
+const readPublishHint = (page) =>
+  page.evaluate(() => {
+    const nodes = [...document.querySelectorAll('.composer-error, .d-editor-container .alert-error, .modal-body .error')]
+      .filter((el) => el.getClientRects().length)
+      .map((el) => (el.innerText || '').trim())
+      .filter(Boolean);
+    return nodes.join(' / ').slice(0, 120);
+  });
 
 export default {
   id: 'trae',
@@ -180,7 +171,13 @@ export default {
       }
 
       await page.locator('button.create', { hasText: '创建话题' }).first().click();
-      const result = await waitPublishResult(page);
+      const result = await waitPublishResult(page, {
+        urlPattern: /forum\.trae\.cn\/t\/[^/]+\/\d+/,
+        readHint: readPublishHint,
+        successPattern: /$^/,
+        failurePattern: /./,
+        timeout: 90000,
+      });
       shots.push(await shot(page, dir, 'published.png'));
       return {
         ...result,

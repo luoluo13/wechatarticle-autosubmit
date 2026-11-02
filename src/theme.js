@@ -137,11 +137,9 @@ export async function prepareTheme(platform, name) {
   const themeName = assertThemeName(name || DEFAULT_THEMES[platform]);
 
   let source;
-  let srcPath = '';
   for (const candidate of themeSourcePaths(platform, themeName)) {
     try {
       source = await fs.readFile(candidate, 'utf8');
-      srcPath = candidate;
       break;
     } catch {
       // 换下一个候选
@@ -159,5 +157,5 @@ export async function prepareTheme(platform, name) {
   const banner = `/* AUTO-GENERATED from ${platform}/${themeName}.css — do not edit. */\n`;
   await fs.writeFile(outPath, banner + css + '\n', 'utf8');
 
-  return { css, outPath, stats, srcPath };
+  return { css, outPath, stats };
 }

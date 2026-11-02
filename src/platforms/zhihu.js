@@ -1,5 +1,12 @@
 import { openSession, ensureDebugDir, shot } from '../browser.js';
-import { copyImageToClipboard, loadContent, normalizeTags, replaceImageSources } from './shared.js';
+import {
+  copyImageToClipboard,
+  loadContent,
+  normalizeTags,
+  pollUntil,
+  replaceImageSources,
+  waitPublishResult,
+} from './shared.js';
 
 const EDITOR_URL = 'https://zhuanlan.zhihu.com/write';
 const TITLE_SELECTOR = 'textarea[placeholder^="请输入标题"]';
@@ -55,15 +62,14 @@ async function uploadImages(page, images, dir) {
 
 /** 图片先以 blob 占位，上传完成后才换成 zhimg 的 CDN 地址 */
 async function waitForImageUrl(page, src, timeout = 90000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const urls = await readImageUrls(page);
-    // 上传完成后地址从 blob: 换成 pic-private.zhihu.com / picX.zhimg.com
-    const remote = urls.find((url) => /^https:\/\/[\w.-]*(zhimg|zhihu)\.com\//i.test(url));
-    if (remote) return remote;
-    await page.waitForTimeout(1000);
-  }
-  throw new Error(`知乎图片上传超时：${src}`);
+  return pollUntil(
+    async () => {
+      const urls = await readImageUrls(page);
+      // 上传完成后地址从 blob: 换成 pic-private.zhihu.com / picX.zhimg.com
+      return urls.find((url) => /^https:\/\/[\w.-]*(zhimg|zhihu)\.com\//i.test(url)) || '';
+    },
+    { timeout, interval: 1000, message: `知乎图片上传超时：${src}` },
+  );
 }
 
 async function pasteHtml(page, html) {
@@ -147,27 +153,12 @@ async function submitPublish(page) {
   }
 }
 
-async function waitPublishResult(page, timeout = 120000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    if (/zhuanlan\.zhihu\.com\/p\/\d+/.test(page.url())) return { ok: true, url: page.url() };
-    let hint = '';
-    try {
-      hint = await page.evaluate(() => {
-        const text = document.body.innerText || '';
-        const match = text.match(/[^\n]{0,20}(发布成功|请添加话题|话题|不能为空|失败)[^\n]{0,20}/);
-        return match ? match[0].trim() : '';
-      });
-    } catch {
-      await page.waitForTimeout(1500);
-      continue;
-    }
-    if (/发布成功/.test(hint)) return { ok: true, url: page.url(), note: hint };
-    if (/请添加话题|不能为空|失败/.test(hint)) return { ok: false, note: hint };
-    await page.waitForTimeout(1500);
-  }
-  return { ok: false, note: '等待发布结果超时，请查看截图确认' };
-}
+const readPublishHint = (page) =>
+  page.evaluate(() => {
+    const text = document.body.innerText || '';
+    const match = text.match(/[^\n]{0,20}(发布成功|请添加话题|话题|不能为空|失败)[^\n]{0,20}/);
+    return match ? match[0].trim() : '';
+  });
 
 export default {
   id: 'zhihu',
@@ -223,7 +214,11 @@ export default {
       }
 
       await submitPublish(page);
-      const result = await waitPublishResult(page);
+      const result = await waitPublishResult(page, {
+        urlPattern: /zhuanlan\.zhihu\.com\/p\/\d+/,
+        readHint: readPublishHint,
+        failurePattern: /请添加话题|不能为空|失败/,
+      });
       shots.push(await shot(page, dir, 'published.png'));
       return {
         ...result,

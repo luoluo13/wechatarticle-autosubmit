@@ -1,17 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { dirs } from '../../config.js';
-import { ensureDebugDir } from '../../browser.js';
+import { ensureDebugDir, shot } from '../../browser.js';
 import { EDITOR_URL, openAuthedSession } from './session.js';
 
 const TITLE_EDITOR = '.title-editor__input .ProseMirror';
 const BODY_EDITOR = '.rich_media_content .ProseMirror';
-
-async function shot(page, dir, name) {
-  const file = path.join(dir, name);
-  await page.screenshot({ path: file, fullPage: false }).catch(() => {});
-  return file;
-}
 
 async function clickButton(page, name) {
   const button = page.getByRole('button', { name, exact: false }).filter({ visible: true }).first();

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { launchBrowser } from './browser.js';
 import { WECHAT_INLINE_LIMIT } from './assets.js';
+import { pathExists } from './fsutil.js';
 
 /** 各平台图片上传大小上限（字节）；没有配置的平台不压缩 */
 export const IMAGE_LIMITS = {
@@ -22,9 +23,7 @@ const MIME_BY_EXT = {
   gif: 'image/gif',
 };
 
-const RASTER_MIME = new Set(Object.values(MIME_BY_EXT));
-
-export function formatBytes(bytes) {
+function formatBytes(bytes) {
   return bytes >= 1024 * 1024
     ? `${(bytes / 1024 / 1024).toFixed(2)}MB`
     : `${Math.round(bytes / 1024)}KB`;
@@ -37,7 +36,7 @@ export function formatBytes(bytes) {
  * 带透明度的图保留 PNG，必要时逐步缩小尺寸；返回可直接交给
  * Playwright `setFiles` / `setInputFiles` 的文件载荷。
  */
-export async function compressImageToLimit(page, file, limit, { maxSide = 4096, targetRatio = 0.98 } = {}) {
+async function compressImageToLimit(page, file, limit, { maxSide = 4096, targetRatio = 0.98 } = {}) {
   if (!limit) return null;
 
   let stat;
@@ -52,7 +51,7 @@ export async function compressImageToLimit(page, file, limit, { maxSide = 4096, 
   const ext = path.extname(file).slice(1).toLowerCase();
   const mime = MIME_BY_EXT[ext];
   const name = path.basename(file);
-  if (!mime || !RASTER_MIME.has(mime)) {
+  if (!mime) {
     throw new Error(`图片 ${name} 超过 ${formatBytes(limit)}，且该格式不支持自动压缩`);
   }
 
@@ -172,15 +171,6 @@ export async function compressImageToLimit(page, file, limit, { maxSide = 4096, 
   };
 }
 
-async function pathExists(target) {
-  try {
-    await fs.access(target);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** 压缩结果写回原目录；格式变了（如 png→jpg）就换文件名并删掉旧文件 */
 async function replaceFile(file, compressed) {
   const dir = path.dirname(file);
@@ -193,6 +183,23 @@ async function replaceFile(file, compressed) {
   await fs.writeFile(target, compressed.payload.buffer);
   if (target !== file) await fs.unlink(file).catch(() => {});
   return target;
+}
+
+/** 批量压缩共用一个 Chromium，避免每次构建都重新拉起浏览器 */
+let compressionBrowser = null;
+
+async function getCompressionBrowser() {
+  if (!compressionBrowser || !compressionBrowser.isConnected()) {
+    compressionBrowser = await launchBrowser({ headless: true });
+  }
+  return compressionBrowser;
+}
+
+/** 任务结束时调用，释放共享的压缩浏览器 */
+export async function closeCompressionBrowser() {
+  const browser = compressionBrowser;
+  compressionBrowser = null;
+  if (browser) await browser.close().catch(() => {});
 }
 
 /**
@@ -211,9 +218,9 @@ export async function compressAndReplace(files, limit) {
   }
   if (!oversized.length) return [];
 
-  const browser = await launchBrowser({ headless: true });
+  const browser = await getCompressionBrowser();
+  const page = await browser.newPage();
   try {
-    const page = await browser.newPage();
     const results = [];
     for (const file of oversized) {
       const compressed = await compressImageToLimit(page, file, limit);
@@ -223,6 +230,6 @@ export async function compressAndReplace(files, limit) {
     }
     return results;
   } finally {
-    await browser.close().catch(() => {});
+    await page.close().catch(() => {});
   }
 }

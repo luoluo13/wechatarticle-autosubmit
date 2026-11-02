@@ -1,5 +1,12 @@
 import { openSession, ensureDebugDir, shot } from '../browser.js';
-import { copyImageToClipboard, loadContent, normalizeTags, replaceImageSources } from './shared.js';
+import {
+  copyImageToClipboard,
+  loadContent,
+  normalizeTags,
+  pollUntil,
+  replaceImageSources,
+  waitPublishResult,
+} from './shared.js';
 
 const EDITOR_URL = 'https://editor.csdn.net/md/';
 const BODY_EDITOR = 'pre.editor__inner';
@@ -47,17 +54,16 @@ async function uploadImages(page, images) {
 }
 
 async function waitForImageUrl(page, src, timeout = 90000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const text = await page.evaluate(
-      (selector) => document.querySelector(selector)?.innerText || '',
-      BODY_EDITOR,
-    );
-    const match = text.match(/https:\/\/[^\s)"']+\.(?:png|jpe?g|gif|webp)/i);
-    if (match) return match[0];
-    await page.waitForTimeout(1000);
-  }
-  throw new Error(`CSDN 图片上传超时：${src}`);
+  return pollUntil(
+    async () => {
+      const text = await page.evaluate(
+        (selector) => document.querySelector(selector)?.innerText || '',
+        BODY_EDITOR,
+      );
+      return text.match(/https:\/\/[^\s)"']+\.(?:png|jpe?g|gif|webp)/i)?.[0] || '';
+    },
+    { timeout, interval: 1000, message: `CSDN 图片上传超时：${src}` },
+  );
 }
 
 async function openPublishDialog(page) {
@@ -107,17 +113,19 @@ async function setCover(page, dialog, file) {
   }
 
   // 封面是异步上传的，等预览图换成 i-blog.csdnimg.cn 的 CDN 地址再继续
-  const deadline = Date.now() + 30000;
-  while (Date.now() < deadline) {
-    const src = await dialog
-      .locator('.container-coverimage-box img')
-      .first()
-      .getAttribute('src')
-      .catch(() => '');
-    if (/i-blog\.csdnimg\.cn\/direct\//.test(src || '')) return true;
-    await page.waitForTimeout(1000);
-  }
-  return false;
+  return pollUntil(
+    async () => {
+      const src = await dialog
+        .locator('.container-coverimage-box img')
+        .first()
+        .getAttribute('src')
+        .catch(() => '');
+      return /i-blog\.csdnimg\.cn\/direct\//.test(src || '');
+    },
+    { timeout: 30000, interval: 1000, message: 'CSDN 封面未上传完成' },
+  )
+    .then(() => true)
+    .catch(() => false);
 }
 
 /** 发布成功后到文章管理里按标题找回链接（发布接口不直接给 URL） */
@@ -137,23 +145,12 @@ async function findArticleUrl(page, title) {
   }
 }
 
-async function waitPublishResult(page, timeout = 120000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    if (/blog\.csdn\.net\/.*\/article\/details\/\d+/.test(page.url())) {
-      return { ok: true, url: page.url() };
-    }
-    const hint = await page.evaluate(() => {
-      const text = document.body.innerText || '';
-      const match = text.match(/[^\n]{0,30}(发布成功|审核中|不能为空|最多|失败)[^\n]{0,30}/);
-      return match ? match[0].trim() : '';
-    });
-    if (/发布成功/.test(hint)) return { ok: true, url: page.url(), note: hint };
-    if (/不能为空|最多|失败/.test(hint)) return { ok: false, note: hint };
-    await page.waitForTimeout(1500);
-  }
-  return { ok: false, note: '等待发布结果超时，请查看截图确认' };
-}
+const readPublishHint = (page) =>
+  page.evaluate(() => {
+    const text = document.body.innerText || '';
+    const match = text.match(/[^\n]{0,30}(发布成功|审核中|不能为空|最多|失败)[^\n]{0,30}/);
+    return match ? match[0].trim() : '';
+  });
 
 export default {
   id: 'csdn',
@@ -213,7 +210,11 @@ export default {
       }
 
       await dialog.locator('button:has-text("发布文章")').last().click();
-      const result = await waitPublishResult(page);
+      const result = await waitPublishResult(page, {
+        urlPattern: /blog\.csdn\.net\/.*\/article\/details\/\d+/,
+        readHint: readPublishHint,
+        failurePattern: /不能为空|最多|失败/,
+      });
       const url = result.ok && !result.url ? await findArticleUrl(page, content.title) : result.url;
       shots.push(await shot(page, dir, 'published.png'));
       return {

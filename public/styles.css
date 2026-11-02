@@ -732,8 +732,6 @@ a.btn {
   background: var(--paper-hi);
   box-shadow: inset 0 -2px 0 var(--vermilion);
 }
-#log-badge { color: var(--vermilion); }
-
 .side-body { flex: 1; min-height: 0; position: relative; }
 
 .pane {

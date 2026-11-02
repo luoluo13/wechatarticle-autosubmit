@@ -7,7 +7,9 @@ import { spawn } from 'node:child_process';
 import matter from 'gray-matter';
 import postcss from 'postcss';
 import { root, dirs, DEFAULT_THEMES } from './config.js';
-import { buildArticle, listArticles, loadArticle, assertBuilt } from './build.js';
+import { buildArticle, listArticles, loadArticle, assertBuilt, isBuildFresh } from './build.js';
+import { closeCompressionBrowser } from './images.js';
+import { pathExists } from './fsutil.js';
 import { assertThemeName, isThemePlatform, transformTheme } from './theme.js';
 import { hasAuth } from './browser.js';
 import { PLATFORMS, getPlatform } from './platforms/index.js';
@@ -50,16 +52,17 @@ const MIME = {
   '.svg': 'image/svg+xml',
 };
 
-async function exists(target) {
-  try {
-    await fs.access(target);
-    return true;
-  } catch {
-    return false;
+/* ---------------------------------- 任务队列 --------------------------------- */
+
+const JOB_TTL = 30 * 60 * 1000;
+
+/** 已完成的任务保留半小时，避免 jobs 只增不删 */
+function cleanupJobs() {
+  const now = Date.now();
+  for (const [id, job] of jobs) {
+    if (job.endedAt && now - job.endedAt > JOB_TTL) jobs.delete(id);
   }
 }
-
-/* ---------------------------------- 任务队列 --------------------------------- */
 
 function captureConsole(job) {
   const originals = { log: console.log, warn: console.warn, error: console.error };
@@ -97,6 +100,7 @@ function runCommand(job, command, args) {
 let queue = Promise.resolve();
 
 function enqueue(task) {
+  cleanupJobs();
   const id = crypto.randomUUID();
   const job = { id, status: 'queued', logs: [], result: null, error: null };
   jobs.set(id, job);
@@ -123,10 +127,16 @@ function toWebPath(file) {
   return `/${path.relative(root, file).split(path.sep).join('/')}`;
 }
 
-/** UI 传的封面是文章目录内的相对路径（如 assets/x.png），统一解析成绝对路径 */
+/** UI 传的封面是文章目录内的相对路径（如 assets/x.png）；只允许文章目录内的文件 */
 function resolveCover(slug, cover) {
   if (!cover) return '';
-  return path.isAbsolute(cover) ? cover : path.join(dirs.content, String(slug || ''), String(cover));
+  const articleDir = path.resolve(dirs.content, String(slug || ''));
+  const file = path.isAbsolute(cover) ? path.resolve(cover) : path.resolve(articleDir, String(cover));
+  const rel = path.relative(articleDir, file);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error('封面必须位于文章目录内');
+  }
+  return file;
 }
 
 function normalizeResult(result) {
@@ -136,10 +146,16 @@ function normalizeResult(result) {
 }
 
 const ACTIONS = {
-  build: (job, body) => buildArticle(body.slug, { platform: body.platform || 'wechat' }),
+  build: async (job, body) => {
+    try {
+      return await buildArticle(body.slug, { imagePlatform: body.platform || 'wechat' });
+    } finally {
+      await closeCompressionBrowser();
+    }
+  },
   remove: async (job, body) => {
     const dir = path.join(dirs.content, body.slug);
-    if (!(await exists(dir))) throw new Error(`文章 ${body.slug} 不存在`);
+    if (!(await pathExists(dir))) throw new Error(`文章 ${body.slug} 不存在`);
     await fs.rm(dir, { recursive: true, force: true });
     await fs.rm(path.join(dirs.build, body.slug), { recursive: true, force: true });
     return { slug: body.slug };
@@ -243,16 +259,18 @@ async function readState() {
   for (const slug of slugs) {
     try {
       const { fields } = await loadArticle(slug);
+      const built = await pathExists(path.join(dirs.build, slug, 'preview.html'));
       articles.push({
         slug,
         title: fields.title || '(未命名)',
         author: fields.author || '',
         digest: fields.digest || '',
         themes: fields.themes || {},
-        built: await exists(path.join(dirs.build, slug, 'preview.html')),
+        built,
+        stale: built && !(await isBuildFresh(slug)),
       });
     } catch (error) {
-      articles.push({ slug, title: slug, error: error.message, built: false });
+      articles.push({ slug, title: slug, error: error.message, built: false, stale: false });
     }
   }
 
@@ -277,8 +295,8 @@ async function readState() {
       })),
     ),
     env: {
-      deps: await exists(path.join(root, 'node_modules', 'playwright')),
-      browsers: await exists(playwrightCache),
+      deps: await pathExists(path.join(root, 'node_modules', 'playwright')),
+      browsers: await pathExists(playwrightCache),
       node: process.version,
     },
   };
@@ -286,7 +304,7 @@ async function readState() {
 
 async function saveArticle(body) {
   const slug = safeSlug(body.slug);
-  if (body.create && (await exists(path.join(dirs.content, slug)))) {
+  if (body.create && (await pathExists(path.join(dirs.content, slug)))) {
     throw new Error(`文章 ${slug} 已存在`);
   }
 
@@ -332,7 +350,7 @@ async function saveAsset(body) {
 
   let name = base;
   let index = 1;
-  while (await exists(path.join(dir, name))) {
+  while (await pathExists(path.join(dir, name))) {
     const ext = path.extname(base);
     name = `${path.basename(base, ext)}-${index}${ext}`;
     index += 1;
@@ -349,7 +367,7 @@ async function removeAsset(body) {
   if (!/\.(png|jpe?g|gif|webp|svg)$/i.test(name)) throw new Error('只能删除图片文件');
 
   const file = path.join(dirs.content, slug, 'assets', name);
-  if (!(await exists(file))) throw new Error(`图片 ${name} 不存在`);
+  if (!(await pathExists(file))) throw new Error(`图片 ${name} 不存在`);
   await fs.rm(file);
 
   const metaPath = path.join(dirs.content, slug, 'article.json');
@@ -402,7 +420,7 @@ async function importTheme(body) {
 
   const builtinPath = path.join(dirs.themes, platform, `${id}.css`);
   const target = path.join(dirs.userThemes, platform, `${id}.css`);
-  if ((await exists(builtinPath)) || (await exists(target))) {
+  if ((await pathExists(builtinPath)) || (await pathExists(target))) {
     throw new Error(`主题 ${id} 已存在，请换个文件名`);
   }
   await fs.mkdir(path.dirname(target), { recursive: true });
@@ -445,9 +463,12 @@ function sendJson(res, status, payload) {
 }
 
 async function serveStatic(res, baseDir, urlPath) {
+  const base = path.resolve(baseDir);
   const relative = path.normalize(decodeURIComponent(urlPath)).replace(/^([/\\])+/, '');
-  const filePath = path.join(baseDir, relative);
-  if (!filePath.startsWith(baseDir)) {
+  const filePath = path.resolve(base, relative);
+  const rel = path.relative(base, filePath);
+  // 用 path.relative 判断越界，避免 base 同前缀的兄弟目录（如 build2/）绕过
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
     res.writeHead(403).end('Forbidden');
     return;
   }
@@ -477,7 +498,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (
       req.method === 'GET' &&
-      ['/app.js', '/styles.css', '/studio.js', '/studio.css'].includes(pathname)
+      ['/app.js', '/styles.css', '/studio.js', '/studio.css', '/common.js'].includes(pathname)
     ) {
       return serveStatic(res, PUBLIC_DIR, pathname.slice(1));
     }
@@ -513,6 +534,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && pathname === '/api/job') {
+      cleanupJobs();
       const job = jobs.get(url.searchParams.get('id'));
       if (!job) return sendJson(res, 404, { error: '任务不存在' });
       return sendJson(res, 200, {

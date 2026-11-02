@@ -1,11 +1,15 @@
 import { openSession, ensureDebugDir, readAuth, shot } from '../browser.js';
-import { IMAGE_LIMITS, compressImageToLimit } from '../images.js';
-import { loadContent, normalizeTags, replaceImageSources } from './shared.js';
+import {
+  loadContent,
+  normalizeTags,
+  pollUntil,
+  replaceImageSources,
+  waitPublishResult,
+} from './shared.js';
 
 const EDITOR_URL = 'https://juejin.cn/editor/drafts/new';
 const BODY_EDITOR = '.CodeMirror';
 const MAX_TAGS = 5;
-const MAX_IMAGE_BYTES = IMAGE_LIMITS.juejin;
 
 const setBody = (page, text) =>
   page.evaluate((value) => {
@@ -28,19 +32,13 @@ async function openImageChooser(page) {
   throw new Error('没找到掘金编辑器的图片上传按钮');
 }
 
-/** 超过掘金 2MB 限制时先压缩，未超限直接返回原路径 */
-async function uploadFile(page, file) {
-  const compressed = await compressImageToLimit(page, file, MAX_IMAGE_BYTES);
-  return compressed ? compressed.payload : file;
-}
-
+/** 构建阶段已按平台上限压缩过图片，这里直接上传原文件 */
 async function uploadImages(page, images) {
   const urlMap = new Map();
   for (const image of images) {
-    const upload = await uploadFile(page, image.file);
     await setBody(page, '');
     const chooser = await openImageChooser(page);
-    await chooser.setFiles(upload);
+    await chooser.setFiles(image.file);
     urlMap.set(image.src, await waitForImageUrl(page, image.src));
   }
   if (images.length) await setBody(page, '');
@@ -48,13 +46,13 @@ async function uploadImages(page, images) {
 }
 
 async function waitForImageUrl(page, src, timeout = 90000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const match = (await readBody(page)).match(/!\[[^\]]*\]\((https:\/\/[^)]+)\)/);
-    if (match) return match[1];
-    await page.waitForTimeout(1000);
-  }
-  throw new Error(`掘金图片上传超时：${src}`);
+  return pollUntil(
+    async () => {
+      const match = (await readBody(page)).match(/!\[[^\]]*\]\((https:\/\/[^)]+)\)/);
+      return match?.[1] || '';
+    },
+    { timeout, interval: 1000, message: `掘金图片上传超时：${src}` },
+  );
 }
 
 async function openPublishPanel(page) {
@@ -107,6 +105,7 @@ async function queryTagNames(keyword) {
       ...(cookie ? { Cookie: cookie } : {}),
     },
     body: JSON.stringify({ cursor: '0', key_word: keyword, limit: 10, sort_type: 1 }),
+    signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`掘金标签接口返回 ${res.status}`);
   const json = await res.json().catch(() => ({}));
@@ -200,50 +199,36 @@ async function setCover(page, panel, file) {
   if (!file) return false;
   const input = panel.locator('.coverselector_container input[type=file]').first();
   if (!(await input.count())) return false;
-  await input.setInputFiles(await uploadFile(page, file));
+  await input.setInputFiles(file);
   // 未上传时容器里是「+」占位图（add.svg），必须等真正的预览图 preview-image 出现
-  const deadline = Date.now() + 30000;
-  while (Date.now() < deadline) {
-    const src = await panel
-      .locator('.coverselector_container img.preview-image')
-      .first()
-      .getAttribute('src')
-      .catch(() => '');
-    if (src && /juejin\.cn/.test(src)) return true;
-    await page.waitForTimeout(1000);
-  }
-  return false;
+  return pollUntil(
+    async () => {
+      const src = await panel
+        .locator('.coverselector_container img.preview-image')
+        .first()
+        .getAttribute('src')
+        .catch(() => '');
+      return Boolean(src && /juejin\.cn/.test(src));
+    },
+    { timeout: 30000, interval: 1000, message: '掘金封面未上传完成' },
+  )
+    .then(() => true)
+    .catch(() => false);
 }
 
-async function waitPublishResult(page, timeout = 120000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    if (/juejin\.cn\/post\/\d+/.test(page.url())) return { ok: true, url: page.url() };
-    // 只看真正的提示条/校验错误，不扫整页文本（占位文案会误伤）
-    let hint = '';
-    try {
-      hint = await page.evaluate(() => {
-        const nodes = [
-          ...document.querySelectorAll(
-            '.byte-message, .byte-notification, [class*=toast], [class*=error-tip], [class*=error-message]',
-          ),
-        ]
-          .filter((el) => el.getClientRects().length)
-          .map((el) => (el.innerText || '').trim())
-          .filter(Boolean);
-        return nodes.join(' / ').slice(0, 160);
-      });
-    } catch {
-      // 发布成功会跳转，evaluate 期间页面被销毁属于正常情况
-      await page.waitForTimeout(1500);
-      continue;
-    }
-    if (/发布成功/.test(hint)) return { ok: true, url: page.url(), note: hint };
-    if (/失败|不能为空|请选择|最多/.test(hint)) return { ok: false, note: hint };
-    await page.waitForTimeout(1500);
-  }
-  return { ok: false, note: '等待发布结果超时，请查看截图确认' };
-}
+/** 只看真正的提示条/校验错误，不扫整页文本（占位文案会误伤） */
+const readPublishHint = (page) =>
+  page.evaluate(() => {
+    const nodes = [
+      ...document.querySelectorAll(
+        '.byte-message, .byte-notification, [class*=toast], [class*=error-tip], [class*=error-message]',
+      ),
+    ]
+      .filter((el) => el.getClientRects().length)
+      .map((el) => (el.innerText || '').trim())
+      .filter(Boolean);
+    return nodes.join(' / ').slice(0, 160);
+  });
 
 /** 掘金摘要要求 50~100 字，文章摘要不够长时用正文补齐 */
 function buildSummary(content) {
@@ -370,7 +355,11 @@ export default {
       }
 
       await panel.locator('button', { hasText: '确定并发布' }).first().click();
-      const result = await waitPublishResult(page);
+      const result = await waitPublishResult(page, {
+        urlPattern: /juejin\.cn\/post\/\d+/,
+        readHint: readPublishHint,
+        failurePattern: /失败|不能为空|请选择|最多/,
+      });
       shots.push(await shot(page, dir, 'published.png'));
       return {
         ...result,

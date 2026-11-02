@@ -2,6 +2,7 @@
 import process from 'node:process';
 import path from 'node:path';
 import { buildArticle, listArticles, assertBuilt } from './build.js';
+import { closeCompressionBrowser } from './images.js';
 import { prepareTheme, isThemePlatform } from './theme.js';
 import { DEFAULT_THEMES } from './config.js';
 import { openSession } from './browser.js';
@@ -75,20 +76,24 @@ async function runBuild(args) {
   const platform = typeof flags.platform === 'string' ? flags.platform : 'wechat';
 
   let failed = 0;
-  for (const slug of slugs) {
-    try {
-      const result = await buildArticle(slug, { platform });
-      console.log(`✓ ${slug}`);
-      console.log(`  标题：${result.title}`);
-      console.log(`  摘要：${result.digest}`);
-      console.log(`  大小：${(result.size / 1024).toFixed(1)} KB`);
-      console.log(`  产物：${path.relative(process.cwd(), result.outDir)}`);
-      for (const w of result.warnings) console.log(`  ! ${w}`);
-    } catch (error) {
-      failed += 1;
-      console.error(`✗ ${slug}`);
-      console.error(`  ${error.message.split('\n').join('\n  ')}`);
+  try {
+    for (const slug of slugs) {
+      try {
+        const result = await buildArticle(slug, { imagePlatform: platform });
+        console.log(`✓ ${slug}`);
+        console.log(`  标题：${result.title}`);
+        console.log(`  摘要：${result.digest}`);
+        console.log(`  大小：${(result.size / 1024).toFixed(1)} KB`);
+        console.log(`  产物：${path.relative(process.cwd(), result.outDir)}`);
+        for (const w of result.warnings) console.log(`  ! ${w}`);
+      } catch (error) {
+        failed += 1;
+        console.error(`✗ ${slug}`);
+        console.error(`  ${error.message.split('\n').join('\n  ')}`);
+      }
     }
+  } finally {
+    await closeCompressionBrowser();
   }
   if (failed) process.exitCode = 1;
 }

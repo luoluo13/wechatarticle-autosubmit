@@ -8,6 +8,7 @@ import { isThemePlatform, prepareTheme } from './theme.js';
 import { inlineImages, collectImages } from './assets.js';
 import { checkWechatHtml } from './checker.js';
 import { compressAndReplace, limitForPlatform } from './images.js';
+import { pathExists } from './fsutil.js';
 
 const md = new MarkdownIt({
   html: true,
@@ -106,13 +107,10 @@ function swapFileName(src, targetFile) {
   return dir === '.' ? name : `${dir}/${name}`;
 }
 
-async function pathExists(target) {
-  try {
-    await fs.access(target);
-    return true;
-  } catch {
-    return false;
-  }
+/** 只允许处理文章目录内的文件，避免正文 / 封面引用把文件写到目录外 */
+function isInside(dir, file) {
+  const rel = path.relative(path.resolve(dir), path.resolve(file));
+  return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
 /** 引用指向的文件不存在时，找同名的其它图片格式（压缩改名后的 1.jpg） */
@@ -156,6 +154,7 @@ async function healMissingRefs(articleDir, fields, markdown, pairs) {
   const nextFields = { ...fields };
 
   for (const image of collectImages(markdown, articleDir)) {
+    if (!isInside(articleDir, image.file)) continue;
     if (await pathExists(image.file)) continue;
     const replacement = await findSiblingImage(image.file);
     if (!replacement) continue;
@@ -166,7 +165,7 @@ async function healMissingRefs(articleDir, fields, markdown, pairs) {
 
   if (nextFields.cover) {
     const coverFile = path.resolve(articleDir, nextFields.cover);
-    if (!(await pathExists(coverFile))) {
+    if (isInside(articleDir, coverFile) && !(await pathExists(coverFile))) {
       const replacement = await findSiblingImage(coverFile);
       if (replacement) {
         const from = nextFields.cover;
@@ -187,9 +186,14 @@ async function prepareImages(articleDir, fields, markdown, platform) {
   const nextFields = healed.fields;
   let nextMarkdown = healed.markdown;
 
-  const images = collectImages(nextMarkdown, articleDir);
+  const images = collectImages(nextMarkdown, articleDir).filter((image) =>
+    isInside(articleDir, image.file),
+  );
   const files = images.map((image) => image.file);
-  if (nextFields.cover) files.push(path.resolve(articleDir, nextFields.cover));
+  if (nextFields.cover) {
+    const coverFile = path.resolve(articleDir, nextFields.cover);
+    if (isInside(articleDir, coverFile)) files.push(coverFile);
+  }
 
   const changes = await compressAndReplace(files, limitForPlatform(platform));
 
@@ -215,13 +219,22 @@ async function prepareImages(articleDir, fields, markdown, platform) {
   return { fields: nextFields, markdown: nextMarkdown, renamed: pairs.length };
 }
 
-export async function buildArticle(slug, { platform = 'wechat' } = {}) {
+/**
+ * imagePlatform 只决定构建时图片压缩所用的上限；
+ * 正文主题固定使用微信公众号主题（其他平台粘贴的是同一份排版）。
+ */
+export async function buildArticle(slug, { imagePlatform = 'wechat' } = {}) {
   const { articleDir, fields: savedFields, markdown: savedMarkdown } = await loadArticle(slug);
   const title = savedFields.title;
   if (!title) throw new Error(`${slug}: 缺少标题（front-matter 或 article.json 的 title）`);
 
   // 构建前先处理超限图片：压缩结果覆盖原文件，并把正文 / 封面里的引用一起改名
-  const { fields, markdown, renamed } = await prepareImages(articleDir, savedFields, savedMarkdown, platform);
+  const { fields, markdown, renamed } = await prepareImages(
+    articleDir,
+    savedFields,
+    savedMarkdown,
+    imagePlatform,
+  );
 
   const themeName = themeFor(fields, 'wechat');
   const { css, stats } = await prepareTheme('wechat', themeName);
@@ -280,12 +293,46 @@ export async function buildArticle(slug, { platform = 'wechat' } = {}) {
   };
 }
 
-/** 发布前必须已经构建过：没有构建产物就直接拒绝 */
-export async function assertBuilt(slug) {
+async function mtimeOf(file) {
   try {
-    await fs.access(path.join(dirs.build, slug, 'preview.html'));
+    return (await fs.stat(file)).mtimeMs;
   } catch {
+    return 0;
+  }
+}
+
+/** 构建产物是否仍对应磁盘上的最新正文 / 字段 / 素材（容差 1 秒，兼容文件系统时间精度） */
+export async function isBuildFresh(slug) {
+  let meta;
+  try {
+    meta = JSON.parse(await fs.readFile(path.join(dirs.build, slug, 'meta.json'), 'utf8'));
+  } catch {
+    return false;
+  }
+  const builtAt = Date.parse(meta?.builtAt || '');
+  if (!Number.isFinite(builtAt)) return false;
+
+  const articleDir = path.join(dirs.content, slug);
+  const assetsDir = path.join(articleDir, 'assets');
+  const assets = await fs.readdir(assetsDir).catch(() => []);
+  const files = [
+    path.join(articleDir, 'index.md'),
+    path.join(articleDir, 'article.json'),
+    ...assets.map((name) => path.join(assetsDir, name)),
+  ];
+
+  let newest = 0;
+  for (const file of files) newest = Math.max(newest, await mtimeOf(file));
+  return newest <= builtAt + 1000;
+}
+
+/** 发布前必须已经构建过，且构建后稿件没有再被改动 */
+export async function assertBuilt(slug) {
+  if (!(await pathExists(path.join(dirs.build, slug, 'preview.html')))) {
     throw new Error(`《${slug}》还没有构建，请先点击「构建预览」再发布`);
+  }
+  if (!(await isBuildFresh(slug))) {
+    throw new Error(`《${slug}》的正文、字段或素材在构建后被修改过，请重新构建预览再发布`);
   }
 }
 

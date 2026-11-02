@@ -53,6 +53,57 @@ export async function copyImageToClipboard(page, file) {
   );
 }
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 轮询直到 getter 返回真值；超时抛出带业务文案的错误 */
+export async function pollUntil(
+  getter,
+  { timeout = 90000, interval = 1000, message = '等待超时' } = {},
+) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const value = await getter();
+    if (value) return value;
+    await delay(interval);
+  }
+  throw new Error(message);
+}
+
+/**
+ * 轮询发布结果：URL 跳转、成功提示、失败提示三种信号；
+ * 页面在提交后可能被销毁，读取提示抛错时按「还没结束」继续等。
+ */
+export async function waitPublishResult(
+  page,
+  {
+    urlPattern,
+    readHint,
+    successPattern = /发布成功/,
+    failurePattern = /失败/,
+    resolveUrl,
+    timeout = 120000,
+    interval = 1500,
+  } = {},
+) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (urlPattern && urlPattern.test(page.url())) {
+      return { ok: true, url: resolveUrl ? await resolveUrl(page) : page.url() };
+    }
+    let hint = '';
+    try {
+      hint = await readHint(page);
+    } catch {
+      await delay(interval);
+      continue;
+    }
+    if (successPattern.test(hint)) return { ok: true, url: page.url(), note: hint };
+    if (failurePattern.test(hint)) return { ok: false, note: hint };
+    await delay(interval);
+  }
+  return { ok: false, note: '等待发布结果超时，请查看截图确认' };
+}
+
 /** 标签统一成去重数组，兼容数组与「逗号/顿号/井号分隔」的字符串 */
 export function normalizeTags(input) {
   if (!input) return [];

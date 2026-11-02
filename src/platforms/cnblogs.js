@@ -1,5 +1,12 @@
 import { openSession, ensureDebugDir, shot } from '../browser.js';
-import { copyImageToClipboard, loadContent, normalizeTags, replaceImageSources } from './shared.js';
+import {
+  copyImageToClipboard,
+  loadContent,
+  normalizeTags,
+  pollUntil,
+  replaceImageSources,
+  waitPublishResult,
+} from './shared.js';
 
 const EDITOR_URL = 'https://i.cnblogs.com/posts/edit';
 const TITLE_SELECTOR = '#post-title';
@@ -31,13 +38,13 @@ async function uploadImages(page, images) {
 }
 
 async function waitForImageUrl(page, src, timeout = 60000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const match = (await readBody(page)).match(/!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/);
-    if (match) return match[1];
-    await page.waitForTimeout(1000);
-  }
-  throw new Error(`博客园图片上传超时：${src}`);
+  return pollUntil(
+    async () => {
+      const match = (await readBody(page)).match(/!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/);
+      return match?.[1] || '';
+    },
+    { timeout, interval: 1000, message: `博客园图片上传超时：${src}` },
+  );
 }
 
 /** 站点分类是单选框，input 被隐藏，只能点对应的 label */
@@ -88,24 +95,12 @@ async function resolvePostUrl(page, postId) {
   }
 }
 
-async function waitPublishResult(page, timeout = 90000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const postId = page.url().match(/postId=(\d+)/)?.[1];
-    if (postId) {
-      return { ok: true, url: (await resolvePostUrl(page, postId)) || page.url() };
-    }
-    const hint = await page.evaluate(() => {
-      const text = document.body.innerText || '';
-      const match = text.match(/[^\n]{0,20}(发布成功|保存成功|不能为空|失败)[^\n]{0,20}/);
-      return match ? match[0].trim() : '';
-    });
-    if (/发布成功/.test(hint)) return { ok: true, url: page.url(), note: hint };
-    if (/不能为空|失败/.test(hint)) return { ok: false, note: hint };
-    await page.waitForTimeout(1500);
-  }
-  return { ok: false, note: '等待发布结果超时，请查看截图确认' };
-}
+const readPublishHint = (page) =>
+  page.evaluate(() => {
+    const text = document.body.innerText || '';
+    const match = text.match(/[^\n]{0,20}(发布成功|保存成功|不能为空|失败)[^\n]{0,20}/);
+    return match ? match[0].trim() : '';
+  });
 
 export default {
   id: 'cnblogs',
@@ -167,7 +162,16 @@ export default {
       }
 
       await page.locator('button', { hasText: '发布' }).filter({ hasNotText: '定时' }).first().click();
-      const result = await waitPublishResult(page);
+      const result = await waitPublishResult(page, {
+        urlPattern: /postId=\d+/,
+        readHint: readPublishHint,
+        failurePattern: /不能为空|失败/,
+        resolveUrl: async (current) => {
+          const postId = current.url().match(/postId=(\d+)/)?.[1];
+          return (await resolvePostUrl(current, postId)) || current.url();
+        },
+        timeout: 90000,
+      });
       shots.push(await shot(page, dir, 'published.png'));
       return {
         ...result,
