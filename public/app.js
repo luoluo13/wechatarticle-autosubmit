@@ -2,11 +2,13 @@ const $ = (selector) => document.querySelector(selector);
 
 const app = {
   articles: [],
-  themes: [],
+  themes: {},
+  themeDefaults: {},
   platforms: [],
   env: {},
   slug: null,
   articleFields: {},
+  themeSelection: {},
   assets: [],
   coverPath: '',
   tagTimer: null,
@@ -44,6 +46,23 @@ function toast(message, isError = false) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
 }
 
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.append(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    return ok;
+  }
+}
+
 /* ---------------------------------- 状态渲染 -------------------------------- */
 
 function envChips() {
@@ -65,6 +84,109 @@ function envChips() {
 
 function selectedPlatform() {
   return app.platforms.find((platform) => platform.id === app.platformId) || null;
+}
+
+/** 当前平台是否使用主题；返回平台 id 或空字符串 */
+function themePlatform() {
+  const platform = selectedPlatform();
+  return platform?.theme ? platform.id : '';
+}
+
+function themeNames(platform) {
+  return app.themes[platform] || [];
+}
+
+const THEME_HELP = {
+  wechat: [
+    '微信公众号主题：UTF-8 编码的纯 CSS 文件，单个文件，不超过 200KB。',
+    '选择器：必须写在 #nice 下，例如 #nice h2 { ... }、#nice p { ... }。',
+    '可用属性：字体、字号、字重、颜色、背景色/渐变、边框、圆角、内外边距、行高、字距、对齐、文本装饰。',
+    '构建时会自动展开 CSS 变量，并把规则逐条内联到正文元素上。',
+    '以下内容会被移除或无法生效：伪元素（::before/::after）、:hover 等交互态、@media、@import、外链字体和图片、position、float、flex/grid、动画、transform、filter。',
+    '提示：微信编辑器不认 <style>，只有内联后依然有效的属性才能保留。',
+    '点击「?」可复制一份主题设计提示词，直接粘贴给 AI 使用。',
+  ].join('\n'),
+  zhihu: [
+    '知乎主题：UTF-8 编码的纯 CSS 文件，单个文件，不超过 200KB。',
+    '选择器：必须写在 #nice 下，例如 #nice h2 { ... }、#nice p { ... }。',
+    '可用属性：字体、字号、字重、颜色、背景、边框、圆角、内外边距、行高、字距、对齐等常规排版属性。',
+    '构建时会自动展开 CSS 变量，并逐条内联后粘贴到知乎编辑器。',
+    '以下内容会被移除或无法生效：伪元素、:hover 等交互态、@media、@import、外链字体和图片、position、flex/grid、动画、transform、filter。',
+    '提示：知乎编辑器粘贴时会重新解析 HTML 并清洗部分样式，复杂布局不保证保留；基础字体/行高建议同时写到 #nice p、#nice li 上。',
+    '点击「?」可复制一份主题设计提示词，直接粘贴给 AI 使用。',
+  ].join('\n'),
+};
+
+/** 点击问号复制给 AI 的主题设计提示词，按平台补充对应限制 */
+function themePrompt(platform) {
+  const isZhihu = platform === 'zhihu';
+  const platformName = isZhihu ? '知乎' : '微信公众号';
+  return [
+    `你是一位熟悉${platformName}排版的 CSS 设计师。请为${platformName}文章设计一套排版主题，只输出一个完整的 .css 文件，不要输出任何解释。`,
+    '',
+    '【输出要求】',
+    '1. UTF-8 编码的纯 CSS，单个文件，不超过 200KB。',
+    '2. 所有选择器必须写在 #nice 下（正文容器 id="nice"），例如 #nice h2 { ... }、#nice p { ... }；不要使用 :root、html、body 等全局选择器。',
+    '3. 只使用这些属性：font-family、font-size、font-weight、font-style、color、background-color、background-image（渐变）、border、border-radius、margin、padding、line-height、letter-spacing、text-align、text-decoration。',
+    '4. 不要使用伪元素（::before/::after）、:hover 等交互伪类、@media、@import、外链字体和图片、position、float、flex、grid、动画、transform、filter；这些会被移除或无法生效。',
+    '5. 可以使用 CSS 变量，但变量要声明在 #nice 内，构建时会展开为字面值。',
+    isZhihu
+      ? '6. 知乎编辑器粘贴时会重新解析 HTML，最外层容器可能被丢弃；基础字体、字号、行高要同时写到 #nice p、#nice li 上，以排版、配色、间距为主，避免复杂布局。'
+      : '6. 公众号编辑器只接受内联样式，效果必须在展开变量、逐条内联后依然可见。',
+    '7. 覆盖元素：h1、h2、h3、h4、p、strong、em、blockquote、ul、ol、li、a、code、pre、table、th、td、img、hr。',
+    '',
+    '【我的需求】',
+    '风格关键词：（例如：极简、杂志感、暖色、科技蓝）',
+    '主色：（例如：#ff6a29）',
+    '适用内容类型：（例如：技术教程、产品评测、生活随笔）',
+    '其他要求：（例如：标题更醒目、代码块用深色）',
+  ].join('\n');
+}
+
+/** 按当前平台重建主题下拉、导入按钮与说明 */
+function renderThemeField() {
+  const platform = selectedPlatform();
+  const platformId = themePlatform();
+  const select = $('#f-theme');
+  const importBtn = $('#theme-import');
+  const helpWrap = $('#theme-help').closest('.theme-help-wrap');
+  const note = $('#theme-note');
+
+  select.disabled = !platformId;
+  importBtn.hidden = !platformId;
+  helpWrap.hidden = !platformId;
+
+  if (!platformId) {
+    select.innerHTML = '<option>平台自带排版（主题不生效）</option>';
+    const tip = $('#theme-tip');
+    tip.textContent = '';
+    tip.classList.remove('show');
+    note.textContent = platform
+      ? `${platform.name} 使用 Markdown 原文粘贴，排版由平台负责，主题不生效。`
+      : '';
+    return;
+  }
+
+  const names = themeNames(platformId);
+  const current =
+    app.themeSelection[platformId] || app.themeDefaults[platformId] || names[0] || '';
+  const options = [...new Set([...names, current].filter(Boolean))];
+
+  select.innerHTML = '';
+  for (const name of options) {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    select.append(option);
+  }
+  select.value = current;
+  app.themeSelection[platformId] = select.value;
+
+  $('#theme-tip').textContent = THEME_HELP[platformId] || '';
+  note.textContent =
+    platformId === 'wechat'
+      ? '当前平台：微信公众号；构建预览、存草稿、发布都会使用这个主题。'
+      : `${platform.name} 主题在发布粘贴正文时生效。`;
 }
 
 function renderPlatforms() {
@@ -100,6 +222,7 @@ function renderPlatforms() {
     ? `${shown.length}/${app.platforms.length}`
     : `${app.platforms.length} 个平台`;
   renderPlatformBar();
+  renderThemeField();
 }
 
 function renderPlatformBar() {
@@ -145,20 +268,17 @@ function renderList() {
     });
     list.append(li);
   }
-  $('#rail-foot').textContent = `${app.articles.length} 篇稿件 · ${app.themes.length} 个主题`;
-}
-
-function renderThemes(selected) {
-  const select = $('#f-theme');
-  const names = [...new Set([...app.themes, selected].filter(Boolean))];
-  select.innerHTML = names.map((name) => `<option value="${name}">${name}</option>`).join('');
-  select.value = selected || app.themes[0] || '';
+  $('#rail-foot').textContent = `${app.articles.length} 篇稿件 · ${Object.values(app.themes).reduce(
+    (sum, names) => sum + names.length,
+    0,
+  )} 个主题`;
 }
 
 async function refreshState() {
   const state = await api('/api/state');
   app.articles = state.articles;
-  app.themes = state.themes;
+  app.themes = state.themes || {};
+  app.themeDefaults = state.themeDefaults || {};
   app.platforms = state.platforms || [];
   app.env = state.env;
   envChips();
@@ -187,7 +307,13 @@ async function selectArticle(slug) {
   $('#f-author').value = data.fields.author || '';
   $('#f-digest').value = data.fields.digest || '';
   $('#f-markdown').value = data.markdown || '';
-  renderThemes(data.fields.theme);
+  app.themeSelection = {};
+  for (const platform of Object.keys(app.themes)) {
+    const value =
+      data.fields.themes?.[platform] || (platform === 'wechat' ? data.fields.theme : '');
+    if (value) app.themeSelection[platform] = value;
+  }
+  renderThemeField();
   $('#slug-tag').textContent = slug;
   $('#digest-count').textContent = `${$('#f-digest').value.length}/54`;
   setSaveState('未修改', '');
@@ -200,6 +326,7 @@ async function selectArticle(slug) {
 function resetEditor() {
   app.slug = null;
   app.articleFields = {};
+  app.themeSelection = {};
   app.assets = [];
   app.dirty = false;
   $('#f-title').value = '';
@@ -208,6 +335,7 @@ function resetEditor() {
   $('#f-markdown').value = '';
   $('#slug-tag').textContent = '—';
   $('#digest-count').textContent = '0/54';
+  renderThemeField();
   renderAssets([]);
   setSaveState('未修改', '');
   loadPreview(null);
@@ -243,12 +371,15 @@ function markDirty() {
 }
 
 function fields() {
-  return {
+  const themes = { ...app.themeSelection };
+  const result = {
     title: $('#f-title').value.trim(),
     author: $('#f-author').value.trim(),
     digest: $('#f-digest').value.trim(),
-    theme: $('#f-theme').value,
+    themes,
   };
+  if (themes.wechat) result.theme = themes.wechat;
+  return result;
 }
 
 async function save() {
@@ -261,7 +392,6 @@ async function save() {
     const item = app.articles.find((article) => article.slug === app.slug);
     if (item) {
       item.title = fields().title || '(未命名)';
-      item.theme = fields().theme;
       renderList();
     }
   } catch (error) {
@@ -809,7 +939,7 @@ function bind() {
       await api('/api/article', {
         create: true,
         slug,
-        fields: { title: '', theme: app.themes[0] },
+        fields: { title: '', themes: {} },
         markdown: '',
       });
       $('#new-dialog').close();
@@ -830,7 +960,78 @@ function bind() {
   for (const id of ['#f-title', '#f-author', '#f-digest']) {
     $(id).addEventListener('input', markDirty);
   }
-  $('#f-theme').addEventListener('change', markDirty);
+  $('#f-theme').addEventListener('change', () => {
+    const platform = themePlatform();
+    if (platform) app.themeSelection[platform] = $('#f-theme').value;
+    markDirty();
+  });
+  const themeHelp = $('#theme-help');
+  const themeTip = $('#theme-tip');
+  // 挂到 body 上，避免被编辑区（有入场动画/overflow）裁剪或改变 fixed 定位基准
+  document.body.append(themeTip);
+  const showThemeTip = () => {
+    const field = themeHelp.closest('.theme-field');
+    if (!field || !themeTip.textContent) return;
+    const fieldRect = field.getBoundingClientRect();
+    const width = Math.min(520, window.innerWidth - 32);
+    themeTip.style.width = `${width}px`;
+    themeTip.style.left = '0px';
+    themeTip.style.top = '0px';
+    themeTip.classList.add('show');
+
+    const height = themeTip.getBoundingClientRect().height;
+    const left = Math.min(
+      Math.max(16, fieldRect.right - width),
+      window.innerWidth - width - 16,
+    );
+    let top = fieldRect.bottom + 6;
+    if (top + height > window.innerHeight - 12) {
+      top = Math.max(12, fieldRect.top - height - 6);
+    }
+    themeTip.style.left = `${Math.round(left)}px`;
+    themeTip.style.top = `${Math.round(top)}px`;
+  };
+  const hideThemeTip = () => themeTip.classList.remove('show');
+  themeHelp.addEventListener('mouseenter', showThemeTip);
+  themeHelp.addEventListener('focus', showThemeTip);
+  themeHelp.addEventListener('mouseleave', hideThemeTip);
+  themeHelp.addEventListener('blur', hideThemeTip);
+  themeHelp.addEventListener('click', async () => {
+    const platform = themePlatform();
+    if (!platform) return;
+    const copied = await copyText(themePrompt(platform));
+    toast(
+      copied ? '已复制主题设计提示词，可粘贴给 AI 使用' : '复制失败，请手动选择提示词',
+      !copied,
+    );
+  });
+  window.addEventListener('scroll', hideThemeTip, true);
+  window.addEventListener('resize', hideThemeTip);
+  $('#theme-import').addEventListener('click', () => {
+    if (!themePlatform()) return;
+    $('#theme-input').click();
+  });
+  $('#theme-input').addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    const platform = themePlatform();
+    if (!file || !platform) return;
+    if (file.size > 200 * 1024) return toast('主题 CSS 不能超过 200KB', true);
+    try {
+      const result = await api('/api/theme/import', {
+        platform,
+        filename: file.name,
+        css: await file.text(),
+      });
+      app.themeSelection[platform] = result.id;
+      await refreshState();
+      renderThemeField();
+      markDirty();
+      toast(`已导入主题 ${result.id}`);
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
   $('#f-markdown').addEventListener('input', markDirty);
   $('#f-digest').addEventListener('input', () => {
     $('#digest-count').textContent = `${$('#f-digest').value.length}/54`;

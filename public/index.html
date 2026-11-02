@@ -61,10 +61,21 @@
           <span>作者</span>
           <input id="f-author" placeholder="选填" autocomplete="off">
         </label>
-        <label class="field">
-          <span>主题</span>
-          <select id="f-theme"></select>
-        </label>
+        <div class="field theme-field">
+          <span>
+            主题
+            <span class="theme-help-wrap">
+              <button type="button" class="theme-help" id="theme-help" aria-label="主题文件格式说明">?</button>
+              <span class="theme-tip" id="theme-tip" role="tooltip"></span>
+            </span>
+          </span>
+          <div class="theme-row">
+            <select id="f-theme" aria-label="排版主题"></select>
+            <button type="button" class="btn tiny" id="theme-import">导入</button>
+          </div>
+          <p class="theme-note" id="theme-note"></p>
+          <input type="file" id="theme-input" accept=".css,text/css" hidden>
+        </div>
       </div>
       <label class="field">
         <span>摘要 <i class="mono" id="digest-count">0/54</i></span>

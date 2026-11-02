@@ -29,10 +29,10 @@
 autosubmit-wechatarticle/
 ├─ content/<slug>/index.md     文章源文件（front-matter + 正文，本地目录，不入库）
 ├─ content/<slug>/assets/      正文与封面用的本地图片
-├─ themes/orange-heart.css     网页版主题：暖橙
-├─ themes/forest-ink.css       网页版主题：松墨绿
-├─ themes/midnight-blue.css    网页版主题：藏蓝
-├─ themes/*.wechat.css         预处理后的微信版主题（构建时生成，已忽略）
+├─ themes/wechat/*.css         微信公众号主题：暖橙 / 松墨绿 / 藏蓝
+├─ themes/zhihu/*.css          知乎主题：知乎蓝 / 沙纸暖褐 / 黑白墨色
+├─ data/themes/<platform>/*.css 用户导入的主题（本地，不入库）
+├─ build/.themes/              预处理后的平台主题（构建时生成，已忽略）
 ├─ src/
 │  ├─ cli.js                   命令行入口
 │  ├─ build.js                 渲染管线
@@ -83,7 +83,9 @@ title: 文章标题
 author: 作者名
 digest: 摘要，转发卡片和会话里展示
 cover: assets/cover.png
-theme: orange-heart
+themes:
+  wechat: orange-heart
+  zhihu: zhihu-classic
 tags: [公众号, 自动化]
 ---
 
@@ -98,14 +100,15 @@ front-matter 字段：
 | `author` | 否 | 作者（公众号后台「作者」字段） |
 | `digest` | 否 | 摘要，不填则自动截取正文开头 |
 | `cover` | 否 | 封面图相对路径，缺省回退到 `assets/cover.png` |
-| `theme` | 否 | 主题名，默认 `orange-heart` |
+| `themes` | 否 | 按平台指定主题，如 `{ wechat: orange-heart, zhihu: zhihu-classic }` |
+| `theme` | 否 | 旧的公众号主题字段，仍兼容；优先使用 `themes.wechat` |
 | `tags` | 否 | 标签 / 话题，供各平台发布时使用 |
 
 ### 3. 本地渲染
 
 ```bash
 node src/cli.js list                 # 列出 content/ 下的文章
-node src/cli.js theme                # 重新生成微信版主题（改主题 CSS 后执行）
+node src/cli.js theme [platform] [name]  # 重新生成主题产物（默认 wechat + orange-heart）
 node src/cli.js build <slug>         # 渲染单篇
 node src/cli.js build --all          # 渲染全部
 ```
@@ -180,6 +183,12 @@ npm run ui          # 等价于 node src/server.js
 - **右：预览与终端**，构建产物直接内嵌预览，任务日志实时滚动
 
 顶部的平台区按「网格选平台 + 单行操作栏」展示：每个平台是一个带登录状态圆点的小方块，点选后下方显示当前平台，并给出登录/后台、存草稿（仅公众号）、发布；平台多了可以用「筛选平台…」快速定位，不再挤在一行里。点「发布」会弹出分类/标签选择框，分类选项实时从平台读取，选完直接发布。
+
+主题按平台隔离：只有**微信公众号**和**知乎**会真正套用主题（各 3 套内置）；CSDN、稀土掘金、博客园、TRAE 社区直接粘贴 Markdown、由平台排版，选中这些平台时会明确提示「主题不生效」并禁用主题选择。主题下拉旁可以「导入」自己写的 `.css`；问号浮层会按当前平台说明文件格式、可用选择器与属性、会被移除的写法。导入的文件保存在 `data/themes/<platform>/`，场景与预处理规则如下：
+
+- 文件必须是 UTF-8 纯 CSS、单个文件、≤200KB，每条选择器都要写在 `#nice` 下（如 `#nice h2 { ... }`）。
+- 构建时展开 CSS 变量，再逐条内联；伪元素、`:hover` 等交互态、`@media`、`@import`、外链字体/图片、`position`、`float`、flex/grid、动画、`transform`、`filter` 会被移除或无法生效。
+- 公众号编辑器只认内联样式，所以只有内联后依然有效的属性才能保留；知乎编辑器还会重新解析 HTML 并清洗部分样式，建议以排版、配色、间距为主，基础字体/行高同时写到 `#nice p`、`#nice li` 上。
 
 界面里填的字段保存在 `content/<slug>/article.json`，不需要写进 Markdown 的 front-matter；构建时以 `article.json` 为准，其次才是 front-matter。
 

@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { loadArticle, renderBody } from '../build.js';
+import { loadArticle, renderBody, renderPlatformHtml } from '../build.js';
 
-/** 统一把文章准备成「标题 + Markdown + 通用 HTML + 本地图片清单 + 封面」 */
-export async function loadContent(slug) {
+/** 统一把文章准备成「标题 + Markdown + 平台 HTML + 本地图片清单 + 封面」 */
+export async function loadContent(slug, platform = '') {
   const { articleDir, fields, markdown } = await loadArticle(slug);
   if (!fields.title) throw new Error(`${slug}: 缺少标题（front-matter 或 article.json 的 title）`);
 
@@ -15,7 +15,7 @@ export async function loadContent(slug) {
     tags: normalizeTags(fields.tags),
     articleDir,
     markdown,
-    html: renderBody(markdown),
+    html: platform ? await renderPlatformHtml(markdown, fields, platform) : renderBody(markdown),
     images: collectImages(markdown, articleDir),
     cover: await findCover(articleDir, fields.cover),
   };

@@ -488,8 +488,92 @@ a.btn {
 
 .field-row {
   display: grid;
-  grid-template-columns: 1fr 200px;
+  grid-template-columns: 1fr 300px;
   gap: 12px;
+}
+
+/* 主题：平台内选择 + 导入 + 格式说明 */
+
+.theme-field > span { justify-content: flex-start; gap: 6px; }
+
+.theme-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.theme-row select { flex: 1; min-width: 0; }
+
+.theme-row .btn {
+  flex: none;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.theme-row select:disabled,
+.theme-row .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.theme-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+.theme-note:empty { display: none; }
+
+.theme-help-wrap { display: inline-flex; }
+.theme-help-wrap[hidden] { display: none; }
+
+.theme-help {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--ink-3);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 12px;
+  cursor: help;
+}
+
+.theme-help:hover,
+.theme-help:focus-visible {
+  border-color: var(--vermilion);
+  color: var(--vermilion);
+}
+
+.theme-tip {
+  display: none;
+  position: fixed;
+  z-index: 40;
+  width: min(520px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--ink);
+  background: var(--paper-hi, #fffdf7);
+  box-shadow: 4px 4px 0 rgba(23, 20, 15, 0.18);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: normal;
+  line-height: 1.7;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+  white-space: pre-line;
+  text-align: left;
+}
+
+.theme-tip.show { display: block; }
+
+.theme-tip code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
 }
 
 /* 代码区 */
@@ -838,7 +922,7 @@ dialog::backdrop {
 
 @media (max-width: 1180px) {
   .desk { grid-template-columns: 200px 1fr 340px; }
-  .field-row { grid-template-columns: 1fr 150px; }
+  .field-row { grid-template-columns: 1fr 260px; }
 }
 
 @media (max-width: 960px) {
@@ -846,6 +930,7 @@ dialog::backdrop {
   .desk { display: flex; flex-direction: column; }
   .rail { border-right: 0; border-bottom: 1px solid var(--ink); max-height: 190px; }
   .editor { border-right: 0; }
+  .field-row { grid-template-columns: 1fr; }
   .code-pane { min-height: 46vh; }
   .side { height: 62vh; border-top: 1px solid var(--ink); }
   .topbar { flex-wrap: wrap; gap: 12px; }

@@ -180,7 +180,7 @@ export default {
   checkLogin: async (page) => /zhihu\.com/.test(page.url()) && !/signin|login/.test(page.url()),
 
   async publish(slug, { headless = false, execute = true, options = {} } = {}) {
-    const content = await loadContent(slug);
+    const content = await loadContent(slug, 'zhihu');
     const chosen = normalizeTags(options.tags);
     const topics = chosen.length ? chosen : content.tags;
     if (!topics.length) throw new Error('知乎至少需要 1 个话题，请在发布弹窗里填写');

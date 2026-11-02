@@ -5,8 +5,10 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import matter from 'gray-matter';
-import { root, dirs, DEFAULT_THEME } from './config.js';
+import postcss from 'postcss';
+import { root, dirs, DEFAULT_THEMES } from './config.js';
 import { buildArticle, listArticles, loadArticle } from './build.js';
+import { assertThemeName, isThemePlatform, transformTheme } from './theme.js';
 import { hasAuth } from './browser.js';
 import { PLATFORMS, getPlatform } from './platforms/index.js';
 import { loginPlatform, loginMany } from './platforms/login.js';
@@ -192,7 +194,7 @@ const ACTIONS = {
 
 /* ---------------------------------- 数据读写 -------------------------------- */
 
-const FIELDS = ['title', 'author', 'digest', 'theme', 'cover', 'tags'];
+const FIELDS = ['title', 'author', 'digest', 'theme', 'themes', 'cover', 'tags'];
 
 function pickFields(fields = {}) {
   const picked = {};
@@ -210,12 +212,28 @@ function safeSlug(slug) {
   return value;
 }
 
-async function listThemes() {
-  const files = await fs.readdir(dirs.themes).catch(() => []);
+async function listThemeDir(dir) {
+  const files = await fs.readdir(dir).catch(() => []);
   return files
-    .filter((file) => file.endsWith('.css') && !file.endsWith('.wechat.css'))
-    .map((file) => file.replace(/\.css$/, ''))
-    .sort();
+    .filter((file) => file.endsWith('.css') && !/\.(wechat|inline)\.css$/i.test(file))
+    .map((file) => file.replace(/\.css$/i, ''));
+}
+
+/** 主题按平台隔离：内置 themes/<platform>/ + 用户导入 data/themes/<platform>/ */
+async function listThemes(platform) {
+  const names = new Set([
+    ...(await listThemeDir(path.join(dirs.themes, platform))),
+    ...(await listThemeDir(path.join(dirs.userThemes, platform))),
+  ]);
+  return [...names].sort();
+}
+
+async function listThemesByPlatform() {
+  const result = {};
+  for (const platform of Object.keys(DEFAULT_THEMES)) {
+    result[platform] = await listThemes(platform);
+  }
+  return result;
 }
 
 async function readState() {
@@ -229,7 +247,7 @@ async function readState() {
         title: fields.title || '(未命名)',
         author: fields.author || '',
         digest: fields.digest || '',
-        theme: fields.theme || DEFAULT_THEME,
+        themes: fields.themes || {},
         built: await exists(path.join(dirs.build, slug, 'preview.html')),
       });
     } catch (error) {
@@ -244,7 +262,8 @@ async function readState() {
 
   return {
     articles,
-    themes: await listThemes(),
+    themes: await listThemesByPlatform(),
+    themeDefaults: DEFAULT_THEMES,
     platforms: await Promise.all(
       PLATFORMS.map(async (platform) => ({
         id: platform.id,
@@ -252,6 +271,7 @@ async function readState() {
         homeUrl: platform.homeUrl,
         optionsSpec: platform.optionsSpec,
         tagSuggest: Boolean(platform.fetchTags),
+        theme: isThemePlatform(platform.id),
         auth: await hasAuth(platform.id),
       })),
     ),
@@ -318,6 +338,50 @@ async function saveAsset(body) {
   }
   await fs.writeFile(path.join(dir, name), buffer);
   return { path: `assets/${name}`, size: buffer.length };
+}
+
+const THEME_MAX_BYTES = 200 * 1024;
+
+/** 导入单个 .css 主题到 data/themes/<platform>/，只接受 #nice 作用域的规则 */
+async function importTheme(body) {
+  const platform = String(body.platform || '');
+  if (!isThemePlatform(platform)) throw new Error('该平台使用自身排版，主题不生效，无法导入');
+
+  const css = String(body.css || '');
+  if (!css.trim()) throw new Error('CSS 内容为空');
+  if (Buffer.byteLength(css, 'utf8') > THEME_MAX_BYTES) throw new Error('CSS 超过 200KB');
+
+  const id = path
+    .basename(String(body.filename || ''))
+    .replace(/\.css$/i, '')
+    .replace(/[^\w.\-\u4e00-\u9fa5]/g, '-')
+    .replace(/^[.\-]+|[.\-]+$/g, '');
+  if (!id) throw new Error('文件名无效，请用字母、数字、下划线或短横线命名');
+  assertThemeName(id);
+  if (/\.(wechat|inline)$/i.test(id)) throw new Error('主题名不能以 .wechat 或 .inline 结尾');
+
+  // 语法校验；同时要求每条选择器都写在 #nice 下，避免导入后到处污染样式
+  const rootNode = postcss.parse(css, { from: undefined });
+  let rules = 0;
+  rootNode.walkRules((rule) => {
+    for (const selector of rule.selector.split(',').map((item) => item.trim())) {
+      if (!selector || !/(^|[\s>+~])#nice\b/.test(selector)) {
+        throw new Error(`选择器必须写在 #nice 下：${selector || '(空)'}`);
+      }
+    }
+    rules += 1;
+  });
+  if (!rules) throw new Error('没有找到任何样式规则');
+  transformTheme(css);
+
+  const builtinPath = path.join(dirs.themes, platform, `${id}.css`);
+  const target = path.join(dirs.userThemes, platform, `${id}.css`);
+  if ((await exists(builtinPath)) || (await exists(target))) {
+    throw new Error(`主题 ${id} 已存在，请换个文件名`);
+  }
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, css, 'utf8');
+  return { platform, id };
 }
 
 async function readArticle(slug) {
@@ -412,6 +476,10 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && pathname === '/api/asset') {
       return sendJson(res, 200, await saveAsset(await readJson(req)));
+    }
+
+    if (req.method === 'POST' && pathname === '/api/theme/import') {
+      return sendJson(res, 200, await importTheme(await readJson(req)));
     }
 
     if (req.method === 'GET' && pathname === '/api/job') {

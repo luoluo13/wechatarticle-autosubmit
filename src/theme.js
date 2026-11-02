@@ -1,15 +1,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import postcss from 'postcss';
-import { dirs, DEFAULT_THEME } from './config.js';
+import { dirs, DEFAULT_THEMES } from './config.js';
 
 /**
- * 伪元素 / 交互伪类在微信里无法生效（内联样式表达不了，<style> 又会被剥离）。
+ * 伪元素 / 交互伪类在微信、知乎的富文本里都无法生效（内联样式表达不了，<style> 又会被剥离）。
  * 含这些选择器的整条规则直接丢弃。
  */
 const DROP_SELECTOR = /::?(before|after|hover|active|focus|focus-within|visited|first-line|first-letter|selection|marker|placeholder|backdrop)\b/i;
 
-/** 微信编辑器不支持（或极易被清洗）的声明 */
+/** 富文本编辑器不支持（或极易被清洗）的声明 */
 const DROP_PROP = new Set([
   'position', 'top', 'right', 'bottom', 'left', 'z-index',
   'float', 'clear',
@@ -22,6 +22,26 @@ const DROP_PROP = new Set([
 ]);
 
 const DROP_AT_RULE = new Set(['media', 'supports', 'keyframes', '-webkit-keyframes', 'container', 'layer']);
+
+export const isThemePlatform = (platform) => Object.hasOwn(DEFAULT_THEMES, platform);
+
+/** 主题名只允许文件名安全字符，避免拼路径时穿越目录 */
+export function assertThemeName(name) {
+  const value = String(name || '');
+  if (!value || !/^[\w.\-\u4e00-\u9fa5]+$/.test(value) || value === '.' || value === '..') {
+    throw new Error(`主题名不合法：${name}`);
+  }
+  return value;
+}
+
+/** 内置主题优先，其次是用户导入到 data/themes/ 的主题 */
+export function themeSourcePaths(platform, name) {
+  assertThemeName(name);
+  return [
+    path.join(dirs.themes, platform, `${name}.css`),
+    path.join(dirs.userThemes, platform, `${name}.css`),
+  ];
+}
 
 function isUnsafeDecl(prop, value) {
   const p = prop.toLowerCase().trim();
@@ -45,24 +65,8 @@ function resolveValue(value, vars, depth = 0) {
   });
 }
 
-/**
- * 把「网页版主题」转成「微信可用主题」：
- *   1. 收集并展开 CSS 变量为字面值
- *   2. 丢弃伪元素 / 交互伪类规则
- *   3. 丢弃 flex / grid / position / 动画等不安全声明
- *   4. 丢弃 @media 等 at-rule
- */
-export async function prepareTheme(name = DEFAULT_THEME) {
-  const srcPath = path.join(dirs.themes, `${name}.css`);
-  const outPath = path.join(dirs.themes, `${name}.wechat.css`);
-
-  let source;
-  try {
-    source = await fs.readFile(srcPath, 'utf8');
-  } catch {
-    throw new Error(`主题不存在：${srcPath}`);
-  }
-
+/** 只做「富文本可用」预处理，不写文件；导入主题时用它先验证语法 */
+export function transformTheme(source) {
   const rootNode = postcss.parse(source);
 
   // 1. 收集变量
@@ -106,7 +110,7 @@ export async function prepareTheme(name = DEFAULT_THEME) {
       return;
     }
     if (/var\(/.test(decl.value)) {
-      // 展开失败（变量缺失）的声明同样丢弃，避免把 var() 带进微信
+      // 展开失败（变量缺失）的声明同样丢弃，避免把 var() 带进富文本
       stats.decls += 1;
       decl.remove();
     }
@@ -117,9 +121,43 @@ export async function prepareTheme(name = DEFAULT_THEME) {
     if (!rule.nodes || rule.nodes.length === 0) rule.remove();
   });
 
-  const css = rootNode.toString().trim();
-  const banner = `/* AUTO-GENERATED from ${name}.css — do not edit. */\n`;
+  return { css: rootNode.toString().trim(), stats };
+}
+
+/**
+ * 把「网页版主题」转成「富文本可用主题」：
+ *   1. 收集并展开 CSS 变量为字面值
+ *   2. 丢弃伪元素 / 交互伪类规则
+ *   3. 丢弃 flex / grid / position / 动画等不安全声明
+ *   4. 丢弃 @media 等 at-rule
+ * 产物写到 build/.themes/（构建目录已被忽略），不污染主题源目录。
+ */
+export async function prepareTheme(platform, name) {
+  if (!isThemePlatform(platform)) throw new Error(`平台 ${platform} 不使用主题`);
+  const themeName = assertThemeName(name || DEFAULT_THEMES[platform]);
+
+  let source;
+  let srcPath = '';
+  for (const candidate of themeSourcePaths(platform, themeName)) {
+    try {
+      source = await fs.readFile(candidate, 'utf8');
+      srcPath = candidate;
+      break;
+    } catch {
+      // 换下一个候选
+    }
+  }
+  if (source === undefined) {
+    throw new Error(`主题不存在：${platform}/${themeName}`);
+  }
+
+  const { css, stats } = transformTheme(source);
+
+  const outDir = path.join(dirs.build, '.themes', platform);
+  await fs.mkdir(outDir, { recursive: true });
+  const outPath = path.join(outDir, `${themeName}.css`);
+  const banner = `/* AUTO-GENERATED from ${platform}/${themeName}.css — do not edit. */\n`;
   await fs.writeFile(outPath, banner + css + '\n', 'utf8');
 
-  return { css, outPath, stats };
+  return { css, outPath, stats, srcPath };
 }

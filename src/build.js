@@ -3,8 +3,8 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import MarkdownIt from 'markdown-it';
 import juice from 'juice';
-import { dirs, DEFAULT_THEME } from './config.js';
-import { prepareTheme } from './theme.js';
+import { dirs, DEFAULT_THEMES } from './config.js';
+import { isThemePlatform, prepareTheme } from './theme.js';
 import { inlineImages } from './assets.js';
 import { checkWechatHtml } from './checker.js';
 
@@ -17,6 +17,35 @@ const md = new MarkdownIt({
 /** 非微信平台用的通用 HTML（保留 class，不套主题） */
 export function renderBody(markdown) {
   return md.render(markdown);
+}
+
+const INLINE_OPTIONS = {
+  applyStyleTags: false,
+  removeStyleTags: true,
+  preserveImportant: true,
+  inlinePseudoElements: false,
+};
+
+/** 每个平台各自的主题；老数据只有 theme 字段时按公众号主题读取 */
+export function themeFor(fields, platform) {
+  if (!isThemePlatform(platform)) return '';
+  const stored = fields?.themes && typeof fields.themes === 'object' ? fields.themes[platform] : '';
+  if (typeof stored === 'string' && stored) return stored;
+  if (platform === 'wechat' && typeof fields?.theme === 'string' && fields.theme) {
+    return fields.theme;
+  }
+  return DEFAULT_THEMES[platform];
+}
+
+/** 知乎等「粘贴 HTML」的平台：套上该平台主题并逐条内联，图片地址保持原样 */
+export async function renderPlatformHtml(markdown, fields, platform) {
+  const rendered = md.render(markdown);
+  if (!isThemePlatform(platform)) return rendered;
+
+  const themeName = themeFor(fields, platform);
+  const { css } = await prepareTheme(platform, themeName);
+  const section = `<section id="nice">\n${rendered.trim()}\n</section>`;
+  return juice.inlineContent(section, css, INLINE_OPTIONS).trim();
 }
 
 export async function listArticles() {
@@ -74,8 +103,8 @@ export async function buildArticle(slug) {
   const title = fields.title;
   if (!title) throw new Error(`${slug}: 缺少标题（front-matter 或 article.json 的 title）`);
 
-  const themeName = fields.theme || DEFAULT_THEME;
-  const { css, stats } = await prepareTheme(themeName);
+  const themeName = themeFor(fields, 'wechat');
+  const { css, stats } = await prepareTheme('wechat', themeName);
 
   const rendered = md.render(markdown);
   // markdown-it 会给代码块加 class="language-xxx"，微信会剥离，这里直接去掉
@@ -83,14 +112,7 @@ export async function buildArticle(slug) {
   const { html: bodyHtml, warnings } = await inlineImages(cleanHtml, articleDir);
 
   const section = `<section id="nice">\n${bodyHtml.trim()}\n</section>`;
-  const inlined = juice
-    .inlineContent(section, css, {
-      applyStyleTags: false,
-      removeStyleTags: true,
-      preserveImportant: true,
-      inlinePseudoElements: false,
-    })
-    .trim();
+  const inlined = juice.inlineContent(section, css, INLINE_OPTIONS).trim();
 
   const issues = checkWechatHtml(inlined);
   if (issues.length) {

@@ -2,8 +2,8 @@
 import process from 'node:process';
 import path from 'node:path';
 import { buildArticle, listArticles } from './build.js';
-import { prepareTheme } from './theme.js';
-import { DEFAULT_THEME } from './config.js';
+import { prepareTheme, isThemePlatform } from './theme.js';
+import { DEFAULT_THEMES } from './config.js';
 import { openSession } from './browser.js';
 import { PLATFORMS, getPlatform } from './platforms/index.js';
 import { loginPlatform, loginMany } from './platforms/login.js';
@@ -21,7 +21,8 @@ autosubmit-wechatarticle
   node src/cli.js build <slug>          渲染单篇文章
   node src/cli.js build --all           渲染 content/ 下所有文章
   node src/cli.js list                  列出可用文章
-  node src/cli.js theme [name]          仅重新生成微信兼容主题（默认 ${DEFAULT_THEME}）
+  node src/cli.js theme [platform] [name]
+                                        仅重新生成主题产物（默认 wechat + ${DEFAULT_THEMES.wechat}）
 
 平台（${PLATFORM_IDS}）：
   node src/cli.js login <platform>      登录单个平台并保存登录态
@@ -89,9 +90,10 @@ async function runBuild(args) {
 }
 
 async function runTheme(args) {
-  const name = args[0] || DEFAULT_THEME;
-  const { outPath, stats } = await prepareTheme(name);
-  console.log(`✓ 主题 ${name} 已预处理`);
+  const platform = isThemePlatform(args[0]) ? args[0] : 'wechat';
+  const name = (platform === args[0] ? args[1] : args[0]) || DEFAULT_THEMES[platform];
+  const { outPath, stats } = await prepareTheme(platform, name);
+  console.log(`✓ 主题 ${platform}/${name} 已预处理`);
   console.log(`  CSS 变量展开：${stats.vars} 个`);
   console.log(`  移除伪元素规则：${stats.pseudoRules} 条`);
   console.log(`  移除 at-rule：${stats.atRules} 条`);
