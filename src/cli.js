@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import process from 'node:process';
 import path from 'node:path';
-import { buildArticle, listArticles } from './build.js';
+import { buildArticle, listArticles, assertBuilt } from './build.js';
 import { prepareTheme, isThemePlatform } from './theme.js';
 import { DEFAULT_THEMES } from './config.js';
 import { openSession } from './browser.js';
@@ -18,8 +18,10 @@ const USAGE = `
 autosubmit-wechatarticle
 
 本地渲染：
-  node src/cli.js build <slug>          渲染单篇文章
-  node src/cli.js build --all           渲染 content/ 下所有文章
+  node src/cli.js build <slug> [--platform <id>]
+                                        渲染单篇文章（按平台上限压缩超限图片）
+  node src/cli.js build --all [--platform <id>]
+                                        渲染 content/ 下所有文章
   node src/cli.js list                  列出可用文章
   node src/cli.js theme [platform] [name]
                                         仅重新生成主题产物（默认 wechat + ${DEFAULT_THEMES.wechat}）
@@ -63,17 +65,19 @@ function parseArgs(args) {
 }
 
 async function runBuild(args) {
-  const slugs = args.includes('--all') ? await listArticles() : args.filter((a) => !a.startsWith('-'));
+  const { positional, flags } = parseArgs(args);
+  const slugs = flags.all ? await listArticles() : positional;
   if (slugs.length === 0) {
     console.error('没有指定文章。用 `node src/cli.js list` 查看可用文章，或加 --all。');
     process.exitCode = 1;
     return;
   }
+  const platform = typeof flags.platform === 'string' ? flags.platform : 'wechat';
 
   let failed = 0;
   for (const slug of slugs) {
     try {
-      const result = await buildArticle(slug);
+      const result = await buildArticle(slug, { platform });
       console.log(`✓ ${slug}`);
       console.log(`  标题：${result.title}`);
       console.log(`  摘要：${result.digest}`);
@@ -222,6 +226,7 @@ async function runPublish(args) {
 
   const platform = requirePlatform(flags.platform || 'wechat');
   if (!platform) return;
+  await assertBuilt(slug);
 
   const headless = Boolean(flags.headless);
   const options = {

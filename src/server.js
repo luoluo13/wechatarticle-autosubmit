@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import matter from 'gray-matter';
 import postcss from 'postcss';
 import { root, dirs, DEFAULT_THEMES } from './config.js';
-import { buildArticle, listArticles, loadArticle } from './build.js';
+import { buildArticle, listArticles, loadArticle, assertBuilt } from './build.js';
 import { assertThemeName, isThemePlatform, transformTheme } from './theme.js';
 import { hasAuth } from './browser.js';
 import { PLATFORMS, getPlatform } from './platforms/index.js';
@@ -136,7 +136,7 @@ function normalizeResult(result) {
 }
 
 const ACTIONS = {
-  build: (job, body) => buildArticle(body.slug),
+  build: (job, body) => buildArticle(body.slug, { platform: body.platform || 'wechat' }),
   remove: async (job, body) => {
     const dir = path.join(dirs.content, body.slug);
     if (!(await exists(dir))) throw new Error(`文章 ${body.slug} 不存在`);
@@ -146,7 +146,8 @@ const ACTIONS = {
   },
   draft: (job, body) =>
     getPlatform('wechat').draft(body.slug, { headless: Boolean(body.headless) }),
-  publish: (job, body) => {
+  publish: async (job, body) => {
+    await assertBuilt(body.slug);
     const platform = getPlatform(body.platform || 'wechat');
     return platform.publish(body.slug, {
       headless: Boolean(body.headless),
@@ -340,6 +341,31 @@ async function saveAsset(body) {
   return { path: `assets/${name}`, size: buffer.length };
 }
 
+/** 删除文章 assets/ 下的单张图片；封面指向它时一并清掉封面字段 */
+async function removeAsset(body) {
+  const slug = safeSlug(body.slug);
+  const name = String(body.name || '');
+  if (!name || path.basename(name) !== name) throw new Error('图片名无效');
+  if (!/\.(png|jpe?g|gif|webp|svg)$/i.test(name)) throw new Error('只能删除图片文件');
+
+  const file = path.join(dirs.content, slug, 'assets', name);
+  if (!(await exists(file))) throw new Error(`图片 ${name} 不存在`);
+  await fs.rm(file);
+
+  const metaPath = path.join(dirs.content, slug, 'article.json');
+  try {
+    const data = JSON.parse(await fs.readFile(metaPath, 'utf8'));
+    if (data.cover && path.basename(String(data.cover)) === name) {
+      delete data.cover;
+      await fs.writeFile(metaPath, JSON.stringify(data, null, 2), 'utf8');
+    }
+  } catch {
+    // 没有 article.json 或内容损坏时不影响删除图片
+  }
+
+  return { name };
+}
+
 const THEME_MAX_BYTES = 200 * 1024;
 
 /** 导入单个 .css 主题到 data/themes/<platform>/，只接受 #nice 作用域的规则 */
@@ -476,6 +502,10 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && pathname === '/api/asset') {
       return sendJson(res, 200, await saveAsset(await readJson(req)));
+    }
+
+    if (req.method === 'POST' && pathname === '/api/asset/remove') {
+      return sendJson(res, 200, await removeAsset(await readJson(req)));
     }
 
     if (req.method === 'POST' && pathname === '/api/theme/import') {

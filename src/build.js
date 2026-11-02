@@ -5,8 +5,9 @@ import MarkdownIt from 'markdown-it';
 import juice from 'juice';
 import { dirs, DEFAULT_THEMES } from './config.js';
 import { isThemePlatform, prepareTheme } from './theme.js';
-import { inlineImages } from './assets.js';
+import { inlineImages, collectImages } from './assets.js';
 import { checkWechatHtml } from './checker.js';
+import { compressAndReplace, limitForPlatform } from './images.js';
 
 const md = new MarkdownIt({
   html: true,
@@ -97,11 +98,130 @@ export async function loadArticle(slug) {
   return { articleDir, fields, markdown: content };
 }
 
-export async function buildArticle(slug) {
-  const { articleDir, fields, markdown } = await loadArticle(slug);
+/** 换掉路径里的文件名，保留原目录写法（如 ./assets/a.png → ./assets/a.jpg） */
+function swapFileName(src, targetFile) {
+  const normalized = src.replace(/\\/g, '/');
+  const dir = path.posix.dirname(normalized);
+  const name = path.basename(targetFile);
+  return dir === '.' ? name : `${dir}/${name}`;
+}
 
-  const title = fields.title;
+async function pathExists(target) {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 引用指向的文件不存在时，找同名的其它图片格式（压缩改名后的 1.jpg） */
+async function findSiblingImage(file) {
+  const base = file.replace(/\.[^.]+$/, '');
+  for (const ext of ['.png', '.jpg', '.jpeg', '.webp', '.gif']) {
+    const candidate = `${base}${ext}`;
+    if (candidate !== file && (await pathExists(candidate))) return candidate;
+  }
+  return '';
+}
+
+/** 同时处理原文与 URL 编码后的写法，避免只替换了一处 */
+function replaceRef(text, from, to) {
+  let out = text.split(from).join(to);
+  const encodedFrom = encodeURI(from);
+  if (encodedFrom !== from) out = out.split(encodedFrom).join(encodeURI(to));
+  return out;
+}
+
+/** 引用改名后同步回写 index.md 与 article.json，保证下次构建 / 发布仍然找得到图 */
+async function rewriteRefs(articleDir, pairs) {
+  if (!pairs.length) return;
+  for (const name of ['index.md', 'article.json']) {
+    const file = path.join(articleDir, name);
+    let raw;
+    try {
+      raw = await fs.readFile(file, 'utf8');
+    } catch {
+      continue;
+    }
+    let next = raw;
+    for (const [from, to] of pairs) next = replaceRef(next, from, to);
+    if (next !== raw) await fs.writeFile(file, next, 'utf8');
+  }
+}
+
+/** 修复指向已改名文件的引用（旧版压缩后没同步到的情况） */
+async function healMissingRefs(articleDir, fields, markdown, pairs) {
+  let nextMarkdown = markdown;
+  const nextFields = { ...fields };
+
+  for (const image of collectImages(markdown, articleDir)) {
+    if (await pathExists(image.file)) continue;
+    const replacement = await findSiblingImage(image.file);
+    if (!replacement) continue;
+    const to = swapFileName(image.src, replacement);
+    pairs.push([image.src, to]);
+    nextMarkdown = replaceRef(nextMarkdown, image.src, to);
+  }
+
+  if (nextFields.cover) {
+    const coverFile = path.resolve(articleDir, nextFields.cover);
+    if (!(await pathExists(coverFile))) {
+      const replacement = await findSiblingImage(coverFile);
+      if (replacement) {
+        const from = nextFields.cover;
+        const to = swapFileName(from, replacement);
+        pairs.push([from, to]);
+        nextFields.cover = to;
+      }
+    }
+  }
+
+  return { fields: nextFields, markdown: nextMarkdown };
+}
+
+/** 构建时压缩超出目标平台上限的图片，返回改写后的字段与正文 */
+async function prepareImages(articleDir, fields, markdown, platform) {
+  const pairs = [];
+  const healed = await healMissingRefs(articleDir, fields, markdown, pairs);
+  const nextFields = healed.fields;
+  let nextMarkdown = healed.markdown;
+
+  const images = collectImages(nextMarkdown, articleDir);
+  const files = images.map((image) => image.file);
+  if (nextFields.cover) files.push(path.resolve(articleDir, nextFields.cover));
+
+  const changes = await compressAndReplace(files, limitForPlatform(platform));
+
+  for (const change of changes) {
+    for (const image of images.filter((item) => item.file === change.source)) {
+      const to = swapFileName(image.src, change.target);
+      pairs.push([image.src, to]);
+      nextMarkdown = replaceRef(nextMarkdown, image.src, to);
+    }
+    if (nextFields.cover && path.resolve(articleDir, nextFields.cover) === change.source) {
+      const from = nextFields.cover;
+      const to = swapFileName(from, change.target);
+      pairs.push([from, to]);
+      nextFields.cover = to;
+    }
+  }
+
+  await rewriteRefs(articleDir, pairs);
+  if (pairs.length) {
+    console.log(`· 已同步图片引用：${[...new Set(pairs.map(([from, to]) => `${from} → ${to}`))].join('，')}`);
+  }
+
+  return { fields: nextFields, markdown: nextMarkdown, renamed: pairs.length };
+}
+
+export async function buildArticle(slug, { platform = 'wechat' } = {}) {
+  const { articleDir, fields: savedFields, markdown: savedMarkdown } = await loadArticle(slug);
+  const title = savedFields.title;
   if (!title) throw new Error(`${slug}: 缺少标题（front-matter 或 article.json 的 title）`);
+
+  // 构建前先处理超限图片：压缩结果覆盖原文件，并把正文 / 封面里的引用一起改名
+  const { fields, markdown, renamed } = await prepareImages(articleDir, savedFields, savedMarkdown, platform);
 
   const themeName = themeFor(fields, 'wechat');
   const { css, stats } = await prepareTheme('wechat', themeName);
@@ -154,9 +274,19 @@ export async function buildArticle(slug) {
     digest,
     outDir,
     warnings,
+    renamed,
     themeStats: stats,
     size: Buffer.byteLength(inlined, 'utf8'),
   };
+}
+
+/** 发布前必须已经构建过：没有构建产物就直接拒绝 */
+export async function assertBuilt(slug) {
+  try {
+    await fs.access(path.join(dirs.build, slug, 'preview.html'));
+  } catch {
+    throw new Error(`《${slug}》还没有构建，请先点击「构建预览」再发布`);
+  }
 }
 
 function buildDigest(html) {

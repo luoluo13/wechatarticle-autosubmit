@@ -322,6 +322,17 @@ async function selectArticle(slug) {
   loadPreview(slug);
 }
 
+/** 构建可能压缩并改名图片，构建后把磁盘上的正文和素材重新拉回编辑器 */
+async function syncArticleFiles() {
+  if (!app.slug) return;
+  const data = await api(`/api/article?slug=${encodeURIComponent(app.slug)}`);
+  $('#f-markdown').value = data.markdown || '';
+  app.assets = data.assets || [];
+  app.dirty = false;
+  renderAssets(app.assets);
+  setSaveState('已同步', 'saved');
+}
+
 /** 清空编辑区，用于删除当前稿件后回到空状态 */
 function resetEditor() {
   app.slug = null;
@@ -403,20 +414,68 @@ async function save() {
 
 /* ---------------------------------- 素材 ---------------------------------- */
 
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 function renderAssets(assets) {
   const box = $('#assets');
   box.innerHTML = '';
   for (const name of assets) {
-    const button = document.createElement('button');
-    button.className = 'asset';
-    button.title = `插入 ${name}`;
-    button.innerHTML = `<img alt=""><span></span>`;
-    button.querySelector('img').src = `/content/${app.slug}/assets/${encodeURIComponent(name)}`;
-    button.querySelector('span').textContent = name;
-    button.addEventListener('click', () => insertAtCursor(`![${name.replace(/\.[^.]+$/, '')}](assets/${name})`));
-    box.append(button);
+    const item = document.createElement('div');
+    item.className = 'asset';
+
+    const pick = document.createElement('button');
+    pick.type = 'button';
+    pick.className = 'asset-pick';
+    pick.title = `插入 ${name}`;
+    pick.innerHTML = '<img alt=""><span></span>';
+    pick.querySelector('img').src = `/content/${app.slug}/assets/${encodeURIComponent(name)}`;
+    pick.querySelector('span').textContent = name;
+    pick.addEventListener('click', () =>
+      insertAtCursor(`![${name.replace(/\.[^.]+$/, '')}](assets/${name})`),
+    );
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'asset-del';
+    remove.title = `删除 ${name}`;
+    remove.textContent = '×';
+    remove.addEventListener('click', () => removeAsset(name));
+
+    item.append(pick, remove);
+    box.append(item);
   }
   box.classList.toggle('has', assets.length > 0);
+}
+
+/** 删除素材图，并把正文里对它的引用一并清掉 */
+async function removeAsset(name) {
+  if (app.busy) return toast('任务执行中，先等它结束', true);
+  if (!app.slug) return;
+  if (!window.confirm(`删除图片「${name}」？正文里对它的引用会一并清理。`)) return;
+
+  try {
+    const area = $('#f-markdown');
+    const pattern = escapeRegExp(name);
+    const cleaned = area.value
+      .replace(
+        new RegExp(`!\\[[^\\]]*\\]\\(\\s*(?:\\.\\/)?assets/${pattern}(?:\\s+"[^"]*")?\\s*\\)[ \\t]*\\n?`, 'g'),
+        '',
+      )
+      .replace(new RegExp(`<img\\b[^>]*?\\ssrc="(?:\\.\\/)?assets/${pattern}"[^>]*>[ \\t]*\\n?`, 'g'), '');
+    if (cleaned !== area.value) {
+      area.value = cleaned;
+      app.dirty = true;
+      await save();
+    }
+
+    await api('/api/asset/remove', { slug: app.slug, name });
+    const fresh = await api(`/api/article?slug=${encodeURIComponent(app.slug)}`);
+    app.assets = fresh.assets || [];
+    renderAssets(app.assets);
+    toast(`已删除 ${name}`);
+  } catch (error) {
+    toast(error.message, true);
+  }
 }
 
 function insertAtCursor(text) {
@@ -570,15 +629,23 @@ async function pollJob(id) {
   if (job.status === 'error') {
     toast(`${ACTION_LABEL[app.jobAction]}失败：${job.error}`, true);
     appendLog([`✗ ${job.error}`]);
+    // 构建失败也可能已经压缩并改名了图片，把最新引用拉回来避免下次再撞「图片不存在」
+    if (app.jobAction === 'build') await syncArticleFiles().catch(() => {});
     return;
   }
 
   const result = job.result || {};
   if (app.jobAction === 'build') {
     appendLog([`✓ 构建完成 · ${(result.size / 1024).toFixed(1)}KB`]);
+    if (result.renamed) {
+      await syncArticleFiles().catch(() => {});
+      appendLog([`· 已同步 ${result.renamed} 处图片引用`]);
+      toast('构建完成，图片引用已同步');
+    } else {
+      toast('构建完成');
+    }
     loadPreview(app.slug);
     switchTab('preview');
-    toast('构建完成');
   } else if (app.jobAction === 'draft') {
     appendLog([
       `封面：${result.cover?.ok ? '已从正文选择' : `失败（${result.cover?.reason || '未知'}）`}`,
@@ -648,6 +715,8 @@ function currentTags() {
 async function openPublishDialog(platformId) {
   if (app.busy) return toast('任务执行中，先等它结束', true);
   if (!app.slug) return toast('先选择或新建一篇文章', true);
+  const article = app.articles.find((item) => item.slug === app.slug);
+  if (!article?.built) return toast('这篇文章还没有构建，请先构建预览再发布', true);
   if (app.dirty) await save();
 
   const platform = app.platforms.find((item) => item.id === platformId);
@@ -870,7 +939,11 @@ function bind() {
   });
 
   document.querySelectorAll('[data-action]').forEach((button) => {
-    button.addEventListener('click', () => run(button.dataset.action));
+    button.addEventListener('click', () => {
+      const action = button.dataset.action;
+      // 构建时按当前选中的平台决定图片上限
+      run(action, action === 'build' ? { platform: app.platformId || 'wechat' } : {});
+    });
   });
 
   $('#platforms').addEventListener('click', (event) => {

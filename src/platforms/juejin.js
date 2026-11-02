@@ -1,9 +1,11 @@
 import { openSession, ensureDebugDir, readAuth, shot } from '../browser.js';
+import { IMAGE_LIMITS, compressImageToLimit } from '../images.js';
 import { loadContent, normalizeTags, replaceImageSources } from './shared.js';
 
 const EDITOR_URL = 'https://juejin.cn/editor/drafts/new';
 const BODY_EDITOR = '.CodeMirror';
 const MAX_TAGS = 5;
+const MAX_IMAGE_BYTES = IMAGE_LIMITS.juejin;
 
 const setBody = (page, text) =>
   page.evaluate((value) => {
@@ -26,12 +28,19 @@ async function openImageChooser(page) {
   throw new Error('没找到掘金编辑器的图片上传按钮');
 }
 
+/** 超过掘金 2MB 限制时先压缩，未超限直接返回原路径 */
+async function uploadFile(page, file) {
+  const compressed = await compressImageToLimit(page, file, MAX_IMAGE_BYTES);
+  return compressed ? compressed.payload : file;
+}
+
 async function uploadImages(page, images) {
   const urlMap = new Map();
   for (const image of images) {
+    const upload = await uploadFile(page, image.file);
     await setBody(page, '');
     const chooser = await openImageChooser(page);
-    await chooser.setFiles(image.file);
+    await chooser.setFiles(upload);
     urlMap.set(image.src, await waitForImageUrl(page, image.src));
   }
   if (images.length) await setBody(page, '');
@@ -191,7 +200,7 @@ async function setCover(page, panel, file) {
   if (!file) return false;
   const input = panel.locator('.coverselector_container input[type=file]').first();
   if (!(await input.count())) return false;
-  await input.setInputFiles(file);
+  await input.setInputFiles(await uploadFile(page, file));
   // 未上传时容器里是「+」占位图（add.svg），必须等真正的预览图 preview-image 出现
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { loadArticle, renderBody, renderPlatformHtml } from '../build.js';
+import { collectImages } from '../assets.js';
 
 /** 统一把文章准备成「标题 + Markdown + 平台 HTML + 本地图片清单 + 封面」 */
 export async function loadContent(slug, platform = '') {
@@ -57,29 +58,6 @@ export function normalizeTags(input) {
   if (!input) return [];
   const list = Array.isArray(input) ? input : String(input).split(/[,，、#]+/);
   return [...new Set(list.map((tag) => String(tag).trim()).filter(Boolean))];
-}
-
-/**
- * 找出正文里的本地图片（Markdown 图片与原生 <img> 都算），
- * 外链和 data URI 不在此列，交给平台自己处理。
- */
-export function collectImages(markdown, articleDir) {
-  const refs = [];
-  for (const match of markdown.matchAll(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
-    refs.push({ alt: match[1], src: match[2] });
-  }
-  for (const match of markdown.matchAll(/<img\b[^>]*\ssrc="([^"]+)"/g)) {
-    refs.push({ alt: '', src: match[1] });
-  }
-
-  const seen = new Set();
-  const images = [];
-  for (const { alt, src } of refs) {
-    if (seen.has(src) || /^(https?:)?\/\//i.test(src) || /^data:/i.test(src)) continue;
-    seen.add(src);
-    images.push({ src, alt, file: path.resolve(articleDir, decodeURI(src)) });
-  }
-  return images;
 }
 
 /** 把正文里的本地图片地址替换成平台返回的 CDN 地址（Markdown 与 HTML 通用） */

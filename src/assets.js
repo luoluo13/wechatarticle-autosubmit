@@ -10,7 +10,32 @@ const MIME = {
   '.bmp': 'image/bmp',
 };
 
-const MAX_BYTES = 2 * 1024 * 1024;
+export const WECHAT_INLINE_LIMIT = 2 * 1024 * 1024;
+
+const MAX_BYTES = WECHAT_INLINE_LIMIT;
+
+/**
+ * 找出正文里的本地图片（Markdown 图片与原生 <img> 都算），
+ * 外链和 data URI 不在此列，交给平台自己处理。
+ */
+export function collectImages(markdown, articleDir) {
+  const refs = [];
+  for (const match of markdown.matchAll(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+    refs.push({ alt: match[1], src: match[2] });
+  }
+  for (const match of markdown.matchAll(/<img\b[^>]*\ssrc="([^"]+)"/g)) {
+    refs.push({ alt: '', src: match[1] });
+  }
+
+  const seen = new Set();
+  const images = [];
+  for (const { alt, src } of refs) {
+    if (seen.has(src) || /^(https?:)?\/\//i.test(src) || /^data:/i.test(src)) continue;
+    seen.add(src);
+    images.push({ src, alt, file: path.resolve(articleDir, decodeURI(src)) });
+  }
+  return images;
+}
 
 /**
  * 把正文里的本地图片转成 base64 内联。
