@@ -752,6 +752,21 @@ async function openPublishDialog(platformId) {
     .join(' · ');
   $('#pd-tags').value = currentTags().join(', ');
   $('#pd-tags-suggest').hidden = true;
+
+  const statements = spec.statements || [];
+  $('#pd-statement-field').hidden = !statements.length;
+  if (statements.length) {
+    const select = $('#pd-statement');
+    select.innerHTML = '';
+    for (const statement of statements) {
+      const option = document.createElement('option');
+      option.value = statement;
+      option.textContent = statement;
+      select.append(option);
+    }
+    select.value = statements[0];
+  }
+
   $('#pd-cover-field').hidden = !spec.cover;
   $('#pd-cover-hint').textContent =
     spec.cover === 'body' ? '只能选正文图片' : '可选文章图片或导入';
@@ -856,9 +871,10 @@ function renderCoverPicker(platform) {
 
   if (!app.coverPath) {
     const preferred = coverFileName(app.articleFields.cover);
+    const body = spec.cover === 'body' ? names : bodyAssets();
     if (preferred && names.includes(preferred)) app.coverPath = `assets/${preferred}`;
-    else if (spec.cover !== 'body' && names.includes('cover.png')) app.coverPath = 'assets/cover.png';
-    else if (spec.cover === 'body' && names.length) app.coverPath = `assets/${names[0]}`;
+    else if (names.includes('cover.png')) app.coverPath = 'assets/cover.png';
+    else if (body.length) app.coverPath = `assets/${body[0]}`;
   }
 
   box.innerHTML = '';
@@ -1001,7 +1017,12 @@ function bind() {
     run('publish', {
       platform: platform.id,
       execute: true,
-      options: { category, tags, cover: app.coverPath },
+      options: {
+        category,
+        tags,
+        cover: app.coverPath,
+        statement: spec.statements?.length ? $('#pd-statement').value : '',
+      },
     });
   });
 

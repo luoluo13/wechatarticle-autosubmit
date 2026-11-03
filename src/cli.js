@@ -237,6 +237,7 @@ async function runPublish(args) {
   const options = {
     category: typeof flags.category === 'string' ? flags.category : '',
     tags: typeof flags.tags === 'string' ? normalizeTags(flags.tags) : [],
+    statement: typeof flags.statement === 'string' ? flags.statement : '',
   };
 
   const result = await platform.publish(slug, {

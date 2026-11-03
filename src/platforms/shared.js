@@ -8,6 +8,7 @@ export async function loadContent(slug, platform = '') {
   const { articleDir, fields, markdown } = await loadArticle(slug);
   if (!fields.title) throw new Error(`${slug}: 缺少标题（front-matter 或 article.json 的 title）`);
 
+  const images = collectImages(markdown, articleDir);
   return {
     slug,
     title: fields.title,
@@ -17,13 +18,13 @@ export async function loadContent(slug, platform = '') {
     articleDir,
     markdown,
     html: platform ? await renderPlatformHtml(markdown, fields, platform) : renderBody(markdown),
-    images: collectImages(markdown, articleDir),
-    cover: await findCover(articleDir, fields.cover),
+    images,
+    cover: await findCover(articleDir, fields.cover, images),
   };
 }
 
-/** 封面：优先用 front-matter 指定的文件，否则回退到 assets/cover.png */
-async function findCover(articleDir, coverField) {
+/** 封面：优先用 front-matter 指定的文件，其次 assets/cover.png，最后回退到正文第一张图 */
+async function findCover(articleDir, coverField, images = []) {
   for (const candidate of [coverField, path.join('assets', 'cover.png')]) {
     if (!candidate) continue;
     const file = path.resolve(articleDir, candidate);
@@ -32,6 +33,14 @@ async function findCover(articleDir, coverField) {
       return file;
     } catch {
       // 换下一个候选
+    }
+  }
+  for (const image of images) {
+    try {
+      await fs.access(image.file);
+      return image.file;
+    } catch {
+      // 图片已缺失时继续找下一张
     }
   }
   return '';

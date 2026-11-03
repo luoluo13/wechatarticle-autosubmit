@@ -95,6 +95,22 @@ async function setTags(page, dialog, tags) {
   }
 }
 
+async function setStatement(page, dialog, statement) {
+  if (!statement) return false;
+  const select = dialog.locator('.creation-statement-select').first();
+  if (!(await select.count())) return false;
+
+  await select.click();
+  const option = page
+    .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+    .filter({ hasText: statement })
+    .first();
+  await option.waitFor({ state: 'visible', timeout: 8000 });
+  await option.click();
+  await page.waitForTimeout(300);
+  return true;
+}
+
 async function setCover(page, dialog, file) {
   if (!file) return false;
   const input = dialog.locator('input.el-upload__input').first();
@@ -159,7 +175,18 @@ export default {
   homeUrl: 'https://mp.csdn.net/',
   editorUrl: EDITOR_URL,
   authCookies: ['UserToken'],
-  optionsSpec: { category: false, tags: 'required', tagsMax: MAX_TAGS, cover: true },
+  optionsSpec: {
+    category: false,
+    tags: 'required',
+    tagsMax: MAX_TAGS,
+    cover: true,
+    statements: [
+      '无声明',
+      '部分内容由AI辅助生成',
+      '内容来源网络，进行整合/再创作',
+      '个人观点，仅供参考',
+    ],
+  },
   checkLogin: async (page) => /mp\.csdn\.net\/console/.test(page.url()),
 
   async publish(slug, { headless = false, execute = true, options = {} } = {}) {
@@ -196,6 +223,8 @@ export default {
       if (content.digest) {
         await dialog.locator('textarea.el-textarea__inner').fill(content.digest.slice(0, 256));
       }
+      const statement = options.statement || '';
+      const statementSet = await setStatement(page, dialog, statement);
       const coverFile = options.cover || content.cover;
       const coverOk = await setCover(page, dialog, coverFile);
       shots.push(await shot(page, dir, 'publish-dialog.png'));
@@ -203,6 +232,7 @@ export default {
       const notes = [
         urlMap.size ? `上传 ${urlMap.size} 张图片` : '',
         coverFile ? (coverOk ? '封面已上传' : '封面未上传，请在后台手动补') : '',
+        statement ? `创作声明：${statementSet ? statement : '未设置成功'}` : '',
       ].filter(Boolean);
 
       if (!execute) {
