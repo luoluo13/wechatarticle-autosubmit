@@ -9,9 +9,31 @@ import {
 } from './shared.js';
 
 const EDITOR_URL = 'https://i.cnblogs.com/posts/edit';
+const POSTS_URL = 'https://i.cnblogs.com/posts';
 const TITLE_SELECTOR = '#post-title';
 const BODY_SELECTOR = '#md-editor';
 const MAX_TAGS = 5;
+
+/** 登录态必须以服务端是否放行后台为准，本地还留着旧 cookie 并不代表已登录 */
+async function checkLogin(page) {
+  try {
+    const response = await page.context().request.get(POSTS_URL, {
+      maxRedirects: 0,
+      failOnStatusCode: false,
+      timeout: 15000,
+    });
+    return response.status() === 200;
+  } catch {
+    return false;
+  }
+}
+
+/** 打开编辑器后仍被重定向到登录页时，直接给出明确提示，避免后续选择器超时 */
+async function ensureSignedIn(page) {
+  if (/account\.cnblogs\.com\/signin/.test(page.url())) {
+    throw new Error('博客园登录态已失效，请重新登录后再发布');
+  }
+}
 
 const readBody = (page) => page.locator(BODY_SELECTOR).inputValue();
 
@@ -108,12 +130,15 @@ export default {
   loginUrl: 'https://account.cnblogs.com/signin?returnUrl=https%3A%2F%2Fi.cnblogs.com%2F',
   homeUrl: 'https://i.cnblogs.com/posts',
   editorUrl: EDITOR_URL,
-  authCookies: ['.CNBlogsCookie', '.Cnblogs.AspNetCore.Cookies'],
+  /* 站点旧 cookie 可能长期残留，不能作为登录依据，统一走 checkLogin */
+  authCookies: [],
+  checkLogin,
   optionsSpec: { category: 'optional', tags: 'optional', tagsMax: MAX_TAGS },
 
   async fetchOptions({ headless = true } = {}) {
     const { browser, page } = await openSession('cnblogs', { headless, url: EDITOR_URL });
     try {
+      await ensureSignedIn(page);
       const names = await page.evaluate(() =>
         [...document.querySelectorAll('input[type=radio][name="site-cate-selector"]')].map((el) => el.id),
       );
@@ -137,6 +162,7 @@ export default {
     const shots = [];
 
     try {
+      await ensureSignedIn(page);
       await page.locator(TITLE_SELECTOR).waitFor({ state: 'visible', timeout: 60000 });
       await page.locator(TITLE_SELECTOR).fill(content.title);
 
@@ -163,11 +189,12 @@ export default {
 
       await page.locator('button', { hasText: '发布' }).filter({ hasNotText: '定时' }).first().click();
       const result = await waitPublishResult(page, {
-        urlPattern: /postId=\d+/,
+        // 博客园成功后跳到 posts/edit-done;postId=123（分号分隔），两种写法都兼容
+        urlPattern: /postId[=;]\d+/,
         readHint: readPublishHint,
-        failurePattern: /不能为空|失败/,
+        failurePattern: /不能为空|请选择|失败/,
         resolveUrl: async (current) => {
-          const postId = current.url().match(/postId=(\d+)/)?.[1];
+          const postId = current.url().match(/postId[=;](\d+)/)?.[1];
           return (await resolvePostUrl(current, postId)) || current.url();
         },
         timeout: 90000,

@@ -40,16 +40,22 @@ async function findCover(articleDir, coverField) {
 /** 把本地图片写进剪贴板，配合 Ctrl+V 让平台编辑器自己上传 */
 export async function copyImageToClipboard(page, file) {
   const ext = path.extname(file).slice(1).toLowerCase();
-  const mime = ext === 'jpg' ? 'jpeg' : ext;
+  const type = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
   const base64 = (await fs.readFile(file)).toString('base64');
   await page.evaluate(
-    async ({ base64: data, type }) => {
+    async ({ base64: data, type: sourceType }) => {
       const bytes = Uint8Array.from(atob(data), (char) => char.charCodeAt(0));
-      await navigator.clipboard.write([
-        new ClipboardItem({ [`image/${type}`]: new Blob([bytes], { type: `image/${type}` }) }),
-      ]);
+      let blob = new Blob([bytes], { type: sourceType });
+      if (sourceType !== 'image/png') {
+        // Chrome 的异步剪贴板只接受 PNG，JPEG/WebP 等要先转成 PNG 再写入
+        const bitmap = await createImageBitmap(blob);
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+        canvas.getContext('2d').drawImage(bitmap, 0, 0);
+        blob = await canvas.convertToBlob({ type: 'image/png' });
+      }
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
     },
-    { base64, type: mime },
+    { base64, type },
   );
 }
 
