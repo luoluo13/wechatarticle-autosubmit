@@ -313,13 +313,27 @@ export async function isBuildFresh(slug) {
   if (!Number.isFinite(builtAt)) return false;
 
   const articleDir = path.join(dirs.content, slug);
-  const assetsDir = path.join(articleDir, 'assets');
-  const assets = await fs.readdir(assetsDir).catch(() => []);
-  const files = [
-    path.join(articleDir, 'index.md'),
-    path.join(articleDir, 'article.json'),
-    ...assets.map((name) => path.join(assetsDir, name)),
-  ];
+  const mdPath = path.join(articleDir, 'index.md');
+  const jsonPath = path.join(articleDir, 'article.json');
+
+  let fields = {};
+  try {
+    fields = JSON.parse(await fs.readFile(jsonPath, 'utf8'));
+  } catch {
+    // 字段缺失时只校验正文与图片
+  }
+  const markdown = await fs.readFile(mdPath, 'utf8').catch(() => '');
+
+  // 只校验真正参与构建的文件：正文、字段、正文引用的图片和已保存的封面。
+  // 发布弹窗里临时导入的素材尚未被引用，不影响构建产物，不应判定为过期。
+  const files = [mdPath, jsonPath];
+  for (const image of collectImages(markdown, articleDir)) {
+    if (isInside(articleDir, image.file)) files.push(image.file);
+  }
+  if (fields.cover) {
+    const coverFile = path.resolve(articleDir, fields.cover);
+    if (isInside(articleDir, coverFile)) files.push(coverFile);
+  }
 
   let newest = 0;
   for (const file of files) newest = Math.max(newest, await mtimeOf(file));
@@ -332,7 +346,7 @@ export async function assertBuilt(slug) {
     throw new Error(`《${slug}》还没有构建，请先点击「构建预览」再发布`);
   }
   if (!(await isBuildFresh(slug))) {
-    throw new Error(`《${slug}》的正文、字段或素材在构建后被修改过，请重新构建预览再发布`);
+    throw new Error(`《${slug}》的正文、字段或正文引用的图片在构建后被修改过，请重新构建预览再发布`);
   }
 }
 

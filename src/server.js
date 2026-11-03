@@ -346,7 +346,6 @@ async function saveAsset(body) {
     .replace(/[^\w.\-\u4e00-\u9fa5]/g, '_');
   const buffer = Buffer.from(String(body.data || '').replace(/^data:[^;]+;base64,/, ''), 'base64');
   if (!buffer.length) throw new Error('图片为空');
-  if (buffer.length > 4 * 1024 * 1024) throw new Error('图片超过 4MB');
 
   let name = base;
   let index = 1;
