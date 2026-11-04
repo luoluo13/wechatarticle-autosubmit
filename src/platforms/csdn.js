@@ -153,18 +153,42 @@ async function findArticleUrl(page, title) {
       const matches = [...document.querySelectorAll('div, li, tr')].filter((el) =>
         (el.textContent || '').includes(needle),
       );
-      const smallest = matches.sort((a, b) => a.textContent.length - b.textContent.length)[0];
-      return smallest?.querySelector('a[href*="/article/details/"]')?.href || '';
+      let box = matches.sort((a, b) => a.textContent.length - b.textContent.length)[0];
+      // 标题本身通常是编辑器链接，要逐层向上找同一行里的「浏览」文章链接
+      for (let i = 0; i < 5 && box?.parentElement; i += 1) {
+        box = box.parentElement;
+        const link = box.querySelector('a[href*="/article/details/"]');
+        if (link) return link.href;
+      }
+      return '';
     }, title);
   } catch {
     return '';
   }
 }
 
+/**
+ * 只读发布相关的提示元素：整页 innerText 会把弹窗后面的文章正文也算进来，
+ * 正文里出现「失败」等词会误判成发布失败。
+ */
 const readPublishHint = (page) =>
   page.evaluate(() => {
-    const text = document.body.innerText || '';
-    const match = text.match(/[^\n]{0,30}(发布成功|审核中|不能为空|最多|失败)[^\n]{0,30}/);
+    // 发布成功后 CSDN 会跳到独立结果页，正文已离开页面，可以整页判断
+    const body = document.body.innerText || '';
+    if (/发布成功[！!]?\s*正在审核中/.test(body)) return '发布成功，正在审核中';
+
+    const nodes = [
+      ...document.querySelectorAll(
+        '.el-message, .el-message-box, .el-notification, .el-form-item__error',
+      ),
+    ].filter((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+    const text = nodes.map((el) => el.innerText || '').join('\n');
+    const match = text.match(
+      /[^\n]{0,40}(不能为空|最多|失败|请选择|请添加)[^\n]{0,40}/,
+    );
     return match ? match[0].trim() : '';
   });
 
@@ -243,10 +267,13 @@ export default {
       const result = await waitPublishResult(page, {
         urlPattern: /blog\.csdn\.net\/.*\/article\/details\/\d+/,
         readHint: readPublishHint,
-        failurePattern: /不能为空|最多|失败/,
+        successPattern: /发布成功|审核中/,
+        failurePattern: /不能为空|最多|失败|请选择|请添加/,
       });
-      const url = result.ok && !result.url ? await findArticleUrl(page, content.title) : result.url;
       shots.push(await shot(page, dir, 'published.png'));
+      const url = result.ok && !/blog\.csdn\.net\/.*\/article\/details\/\d+/.test(result.url || '')
+        ? (await findArticleUrl(page, content.title)) || result.url
+        : result.url;
       return {
         ...result,
         url,
