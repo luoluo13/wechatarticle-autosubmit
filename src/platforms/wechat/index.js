@@ -27,7 +27,7 @@ export default {
   name: '微信公众号',
   loginUrl: MP_HOME,
   homeUrl: MP_HOME,
-  optionsSpec: { category: false, tags: false, cover: 'body' },
+  optionsSpec: { category: false, tags: false, cover: 'body', bodyImageRequired: true },
 
   /** 供「一次性登录全部平台」轮询用 */
   checkLogin: async (page) =>

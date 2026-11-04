@@ -456,6 +456,13 @@ async function runArticle(
   const meta = JSON.parse(metaRaw);
   const expectedImages = (html.match(/<img\b/g) || []).length;
 
+  // 微信公众号发文要求正文至少有一张图，单独导入的封面不满足该条件
+  if (publish && expectedImages === 0) {
+    throw new Error(
+      '微信公众号要求正文至少包含一张图片（单独导入的封面不算），请插入图片并重新构建预览后再发布',
+    );
+  }
+
   const { browser, page, token } = await openAuthedSession({ headless });
   const debugDir = await ensureDebugDir();
   const shots = [];
@@ -471,6 +478,9 @@ async function runArticle(
     shots.push(await shot(page, debugDir, `${slug}-2-filled.png`));
 
     const images = await waitForImages(page, expectedImages);
+    if (publish && images.total === 0) {
+      throw new Error('正文图片没有成功插入微信编辑器，请重试或手动检查');
+    }
 
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForTimeout(600);

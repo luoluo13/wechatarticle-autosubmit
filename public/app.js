@@ -737,6 +737,9 @@ async function openPublishDialog(platformId) {
   if (!platform) return;
 
   const spec = platform.optionsSpec || {};
+  if (spec.bodyImageRequired && !bodyAssets().length) {
+    return toast(`${platform.name}要求正文至少包含一张图片，请先在正文插入图片`, true);
+  }
   app.publishPlatform = platformId;
   app.coverPath = '';
 
@@ -881,7 +884,11 @@ function renderCoverPicker(platform) {
   if (!names.length) {
     const empty = document.createElement('p');
     empty.className = 'hint';
-    empty.textContent = spec.cover === 'body' ? '正文里还没有图片' : '文章里还没有图片素材';
+    empty.textContent = spec.bodyImageRequired
+      ? '微信公众号要求正文至少一张图片，请先插入图片'
+      : spec.cover === 'body'
+        ? '正文里还没有图片'
+        : '文章里还没有图片素材';
     box.append(empty);
   }
 
