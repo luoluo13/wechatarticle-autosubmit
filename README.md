@@ -1,4 +1,4 @@
-# autosubmit-wechatarticle
+# autosubmit
 
 把本地 Markdown 文章渲染成各平台可用的格式，并通过浏览器自动化发布到微信公众号、CSDN、稀土掘金、知乎、博客园和 TRAE 官方中文社区。
 
